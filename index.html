@@ -1,11 +1,15 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ร้านบับเข้าหั้ย - POS Cloud</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Import Map for React ES Modules -->
     <script type="importmap">
     {
         "imports": {
@@ -15,6 +19,7 @@
         }
     }
     </script>
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
     <style>
@@ -1645,7 +1650,7 @@
                                                 )}
                                             </span>
                                             <span className="text-xs text-gray-500 mt-1 block"><i className="far fa-clock mr-1"></i>{formatTime(sale.date)}</span>
-                                            <span className="text-xs text-gray-400 block mt-1">ID: {sale.id.slice(-6)}</span>
+                                            <span className="text-xs text-gray-400 block mt-1">ID: {String(sale.id).slice(-6)}</span>
                                         </div>
                                     </div>
                                     
