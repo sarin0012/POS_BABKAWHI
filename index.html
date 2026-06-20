@@ -1,0 +1,1837 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ร้านบับเข้าหั้ย - POS Cloud</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .spinner { border: 4px solid rgba(0,0,0,0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #dc2626; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .toggle-checkbox:checked { right: 0; border-color: #dc2626; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #dc2626; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+
+        const API_URL = "https://script.google.com/macros/s/AKfycbx2n5RUmzApTA-rr4NTb2XW5I8awmWP7vDn1iyZGnxfkCGThgtp8Iy7nkKYqmB2ZrgHLw/exec"; 
+        
+        // --- Custom Hook สำหรับ Cloud Sync ---
+        function useCloudState(key, initialValue, apiUrl) {
+            const [data, setData] = useState(initialValue);
+            const [isLoading, setIsLoading] = useState(true);
+
+            useEffect(() => {
+                if (!apiUrl || apiUrl.includes("ใส่_URL_ของ")) {
+                    const item = window.localStorage.getItem(key);
+                    if (item) setData(JSON.parse(item));
+                    setIsLoading(false);
+                    return;
+                }
+
+                fetch(`${apiUrl}?key=${key}`)
+                    .then(res => res.json())
+                    .then(json => {
+                        if (json.data && json.data.length > 0) {
+                            setData(json.data);
+                            window.localStorage.setItem(key, JSON.stringify(json.data));
+                        } else {
+                            setValueAndSync(initialValue); 
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Cloud fetch failed", err);
+                        const item = window.localStorage.getItem(key);
+                        if (item) setData(JSON.parse(item));
+                    })
+                    .finally(() => setIsLoading(false));
+            }, [key, apiUrl]);
+
+            const setValueAndSync = (newValue) => {
+                const valueToStore = newValue instanceof Function ? newValue(data) : newValue;
+                setData(valueToStore);
+                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+
+                if (apiUrl && !apiUrl.includes("ใส่_URL_ของ")) {
+                    fetch(apiUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'set', key: key, data: valueToStore })
+                    }).catch(err => console.error("Cloud sync failed", err));
+                }
+            };
+
+            return [data, setValueAndSync, isLoading];
+        }
+
+        // --- Initial Mock Data ---
+        const initialMaterials = [
+            { id: 'm1', name: 'แป้งเคบับ', unit: 'แผ่น', cost: 5, stock: 500, category: 'แป้ง', isSubBOM: false, lossPercent: 0 },
+            { id: 'm2', name: 'เนื้อไก่หมัก', unit: 'กรัม', cost: 0.15, stock: 10000, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 5 },
+            { id: 'm3', name: 'ไก่กรอบ', unit: 'ชิ้น', cost: 10, stock: 200, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 0 },
+            { id: 'm4', name: 'ชีสแผ่น', unit: 'แผ่น', cost: 4, stock: 300, category: 'ชีส', isSubBOM: false, lossPercent: 0 },
+            { id: 'm5', name: 'ผักรวม', unit: 'เสิร์ฟ', cost: 3, stock: 500, category: 'ผัก', isSubBOM: false, lossPercent: 10 },
+            { id: 'm6', name: 'ซอสเคบับ', unit: 'มล.', cost: 0.05, stock: 5000, category: 'ซอส', isSubBOM: false, lossPercent: 2 }
+        ];
+
+        const initialMenus = [
+            { id: 'menu1', name: 'เคบับไก่', price: 60, image: '🌯🐔', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu2', name: 'เคบับไก่ชีส', price: 75, image: '🌯🐔🧀', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu3', name: 'เคบับไก่กรอบ', price: 65, image: '🌯🍗', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu4', name: 'เคบับไก่กรอบชีส', price: 80, image: '🌯🍗🧀', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu5', name: 'เคบับมินิไก่กรอบ', price: 45, image: '🌮🍗', recipe: [{ materialId: 'm1', amount: 0.5 }, { materialId: 'm3', amount: 0.5 }, { materialId: 'm5', amount: 0.5 }, { materialId: 'm6', amount: 15 }] }
+        ];
+
+        // --- Custom Local Storage Hook ---
+        function useLocalStorage(key, initialValue) {
+            const [storedValue, setStoredValue] = useState(() => {
+                try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; }
+                catch (error) { return initialValue; }
+            });
+            const setValue = (value) => {
+                try {
+                    const valueToStore = value instanceof Function ? value(storedValue) : value;
+                    setStoredValue(valueToStore);
+                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                } catch (error) {}
+            };
+            return [storedValue, setValue];
+        }
+
+        // --- Main App Component ---
+        function App() {
+            const [activeTab, setActiveTab] = useState('pos'); 
+            const [notification, setNotification] = useState(null);
+
+            const [materials, setMaterials, l1] = useCloudState('kebab_materials', initialMaterials, API_URL);
+            const [menus, setMenus, l2] = useCloudState('kebab_menus', initialMenus, API_URL);
+            const [sales, setSales, l3] = useCloudState('kebab_sales', [], API_URL);
+            const [stockLogs, setStockLogs, l4] = useCloudState('kebab_stock_logs', [], API_URL);
+            const [expenses, setExpenses, l5] = useCloudState('kebab_expenses', [], API_URL);
+
+            const isDataLoading = l1 || l2 || l3 || l4 || l5;
+
+            const showNotify = (msg, type = 'success') => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            const getMenuCost = (recipe) => {
+                return recipe.reduce((sum, r) => {
+                    const mat = materials.find(m => m.id === r.materialId);
+                    return sum + ((mat ? mat.cost : 0) * r.amount);
+                }, 0);
+            };
+
+            if (isDataLoading) {
+                return (
+                    <div className="flex flex-col h-screen items-center justify-center bg-gray-50">
+                        <div className="spinner mb-4"></div>
+                        <p className="text-gray-500 font-bold">กำลังเชื่อมต่อฐานข้อมูล...</p>
+                        <p className="text-xs text-gray-400 mt-2">ดาวน์โหลดข้อมูลจาก Google Sheets</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex flex-col h-screen overflow-hidden">
+                    <header className="bg-gray-900 text-white p-4 shadow-md z-10 flex justify-between items-center border-b-4 border-red-600">
+                        <h1 className="text-xl font-bold"><i className="fas fa-utensils text-red-500 mr-2"></i>ร้านบับเข้าหั้ย</h1>
+                        <span className="text-xs font-bold bg-red-600 px-3 py-1 rounded-full text-white shadow-sm">{activeTab.toUpperCase()}</span>
+                    </header>
+
+                    <main className="flex-1 overflow-y-auto p-4 pb-24 hide-scroll relative bg-gray-50">
+                        {notification && (
+                            <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg text-white font-bold z-50 ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-500'} transition-all`}>
+                                {notification.msg}
+                            </div>
+                        )}
+                        {activeTab === 'dashboard' && <DashboardView materials={materials} sales={sales} menus={menus} expenses={expenses} />}
+                        {activeTab === 'pos' && <POSView menus={menus} materials={materials} sales={sales} setSales={setSales} setMaterials={setMaterials} showNotify={showNotify} getMenuCost={getMenuCost} />}
+                        {activeTab === 'inventory' && <InventoryView materials={materials} setMaterials={setMaterials} showNotify={showNotify} stockLogs={stockLogs} setStockLogs={setStockLogs} />}
+                        {activeTab === 'menu' && <MenuView menus={menus} setMenus={setMenus} materials={materials} getMenuCost={getMenuCost} showNotify={showNotify} />}
+                        {activeTab === 'history' && <HistoryView sales={sales} setSales={setSales} materials={materials} setMaterials={setMaterials} showNotify={showNotify} />}
+                        {activeTab === 'expenses' && <ExpenseView expenses={expenses} setExpenses={setExpenses} showNotify={showNotify} />}
+                    </main>
+
+                    <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full grid grid-cols-6 p-2 pb-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-20">
+                        <NavButton icon="fa-chart-pie" label="แดชบอร์ด" isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+                        <NavButton icon="fa-cash-register" label="ขาย" isActive={activeTab === 'pos'} onClick={() => setActiveTab('pos')} />
+                        <NavButton icon="fa-boxes-stacked" label="สต็อค" isActive={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+                        <NavButton icon="fa-book-open" label="เมนู" isActive={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
+                        <NavButton icon="fa-receipt" label="ประวัติ" isActive={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+                        <NavButton icon="fa-file-invoice-dollar" label="รายจ่าย" isActive={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} />
+                    </nav>
+                </div>
+            );
+        }
+
+        // --- NavButton ---
+        function NavButton({ icon, label, isActive, onClick }) {
+            return (
+                <button onClick={onClick} className={`flex flex-col items-center justify-center p-2 transition-colors ${isActive ? 'text-red-600' : 'text-gray-400 hover:text-red-500'}`}>
+                    <i className={`fas ${icon} text-xl mb-1`}></i>
+                    <span className="text-[10px] font-semibold">{label}</span>
+                </button>
+            );
+        }
+
+        // 1. Dashboard View
+        function DashboardView({ materials, sales, expenses }) {
+            const [filterType, setFilterType] = useState('today');
+            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+            const filteredSales = useMemo(() => {
+                return sales.filter(s => {
+                    const saleDate = new Date(s.date);
+                    const now = new Date();
+                    if (filterType === 'today') {
+                        return saleDate.toLocaleDateString('th-TH') === now.toLocaleDateString('th-TH');
+                    } else if (filterType === 'month') {
+                        return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'year') {
+                        return saleDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'custom') {
+                        const sDate = new Date(startDate);
+                        sDate.setHours(0,0,0,0);
+                        const eDate = new Date(endDate);
+                        eDate.setHours(23,59,59,999);
+                        return saleDate >= sDate && saleDate <= eDate;
+                    }
+                    return true;
+                });
+            }, [sales, filterType, startDate, endDate]);
+
+            const filteredExpenses = useMemo(() => {
+                const expList = expenses || [];
+                return expList.filter(e => {
+                    const expDate = new Date(e.date);
+                    const now = new Date();
+                    if (filterType === 'today') {
+                        return expDate.toLocaleDateString('th-TH') === now.toLocaleDateString('th-TH');
+                    } else if (filterType === 'month') {
+                        return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'year') {
+                        return expDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'custom') {
+                        const sDate = new Date(startDate);
+                        sDate.setHours(0,0,0,0);
+                        const eDate = new Date(endDate);
+                        eDate.setHours(23,59,59,999);
+                        return expDate >= sDate && expDate <= eDate;
+                    }
+                    return true;
+                });
+            }, [expenses, filterType, startDate, endDate]);
+
+            const totalRevenue = filteredSales.reduce((sum, s) => sum + s.totalRevenue, 0);
+            const totalCost = filteredSales.reduce((sum, s) => sum + s.totalCost, 0);
+            const totalExpenseAmount = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+            const totalProfit = totalRevenue - totalCost - totalExpenseAmount;
+
+            const itemStats = useMemo(() => {
+                const stats = {};
+                let totalItemsSold = 0;
+                filteredSales.forEach(sale => {
+                    sale.items.forEach(item => {
+                        if (!stats[item.name]) stats[item.name] = { count: 0, revenue: 0 };
+                        stats[item.name].count += item.qty;
+                        stats[item.name].revenue += (item.price * item.qty);
+                        totalItemsSold += item.qty;
+                    });
+                });
+                
+                return Object.entries(stats)
+                    .map(([name, data]) => ({
+                        name,
+                        count: data.count,
+                        revenue: data.revenue,
+                        percentage: totalItemsSold > 0 ? (data.count / totalItemsSold) * 100 : 0
+                    }))
+                    .sort((a, b) => b.count - a.count);
+            }, [filteredSales]);
+
+            const lowStockItems = materials.filter(m => m.stock < 100);
+
+            const getFilterLabel = () => {
+                switch(filterType) {
+                    case 'today': return 'วันนี้';
+                    case 'month': return 'เดือนนี้';
+                    case 'year': return 'ปีนี้';
+                    case 'custom': return 'ช่วงเวลาที่เลือก';
+                    default: return '';
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-gray-700">ภาพรวมยอดขาย ({getFilterLabel()})</h2>
+                            <select 
+                                value={filterType} 
+                                onChange={e => setFilterType(e.target.value)}
+                                className="border border-gray-200 rounded-lg p-2 text-sm bg-white focus:outline-none focus:border-red-500 font-medium text-gray-700 shadow-sm"
+                            >
+                                <option value="today">วันนี้</option>
+                                <option value="month">เดือนนี้</option>
+                                <option value="year">ปีนี้</option>
+                                <option value="custom">กำหนดช่วงวันที่</option>
+                            </select>
+                        </div>
+                        
+                        {filterType === 'custom' && (
+                            <div className="flex space-x-2 bg-white p-3 rounded-lg shadow-sm border border-gray-100 animate-fade-in">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">เริ่มวันที่</label>
+                                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border border-gray-200 rounded p-1.5 text-sm text-gray-700 focus:outline-none focus:border-red-400" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">ถึงวันที่</label>
+                                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-200 rounded p-1.5 text-sm text-gray-700 focus:outline-none focus:border-red-400" />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-gray-900 col-span-2 md:col-span-1">
+                            <p className="text-sm text-gray-500">ยอดขายรวม</p>
+                            <p className="text-2xl font-bold text-gray-900">฿{totalRevenue.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 col-span-2 md:col-span-1">
+                            <p className="text-sm text-gray-500">กำไรสุทธิ <span className="text-[10px] font-normal text-gray-400">(หักรายจ่ายแล้ว)</span></p>
+                            <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                ฿{totalProfit.toLocaleString('th-TH', {minimumFractionDigits: 2})}
+                            </p>
+                        </div>
+                        <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500">
+                            <p className="text-xs text-gray-500">ต้นทุนวัตถุดิบ (ตามสูตร)</p>
+                            <p className="text-lg font-bold text-red-500">-฿{totalCost.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
+                        </div>
+                         <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-orange-500">
+                            <p className="text-xs text-gray-500">รายจ่ายที่บันทึก</p>
+                            <p className="text-lg font-bold text-orange-500">-฿{totalExpenseAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center">
+                            <i className="fas fa-chart-bar text-red-600 mr-2"></i> สินค้าขายดี (เรียงตามจำนวนชิ้น)
+                        </h3>
+                        {itemStats.length === 0 ? (
+                            <p className="text-center text-gray-400 py-4 text-sm">ยังไม่มีข้อมูลการขายในช่วงเวลานี้</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {itemStats.map((item, index) => (
+                                    <div key={item.name}>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="font-medium text-gray-800">{index + 1}. {item.name}</span>
+                                            <span className="text-gray-600 font-bold">{item.count} <span className="text-xs font-normal text-gray-400">({item.percentage.toFixed(1)}%)</span></span>
+                                        </div>
+                                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                                            <div className="bg-red-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${item.percentage}%` }}></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-700 mb-3 flex items-center">
+                            <i className="fas fa-triangle-exclamation text-red-500 mr-2"></i> สต็อคใกล้หมด
+                        </h2>
+                        {lowStockItems.length === 0 ? (
+                            <p className="text-gray-500 bg-white p-4 rounded-xl shadow-sm text-center border border-gray-100">สต็อคเพียงพอทุกรายการ</p>
+                        ) : (
+                            <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+                                {lowStockItems.map(item => (
+                                    <div key={item.id} className="p-3 border-b border-gray-100 flex justify-between items-center last:border-0 bg-red-50">
+                                        <span className="font-medium text-gray-800">{item.name}</span>
+                                        <span className="text-red-600 font-bold">{item.stock} {item.unit}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // 2. POS View
+        function POSView({ menus, materials, sales, setSales, setMaterials, showNotify, getMenuCost }) {
+            const [cart, setCart] = useState([]);
+            const [customLocation, setCustomLocation] = useLocalStorage('kebab_custom_location', 'หน้าร้าน');
+            const [isLineman, setIsLineman] = useState(false);
+
+            const [optionModal, setOptionModal] = useState({ isOpen: false, menu: null });
+            const [hasDoubleCheese, setHasDoubleCheese] = useState(false);
+
+            const handleMenuClick = (menu) => {
+                setHasDoubleCheese(false);
+                setOptionModal({ isOpen: true, menu: menu });
+            };
+
+            const confirmOptions = () => {
+                addToCart(optionModal.menu, hasDoubleCheese);
+                setOptionModal({ isOpen: false, menu: null });
+            };
+
+            const addToCart = (menu, doubleCheese) => {
+                const cartItemId = menu.id + (doubleCheese ? '_dc' : '');
+
+                setCart(prev => {
+                    const existing = prev.find(item => item.cartItemId === cartItemId);
+                    if (existing) {
+                        return prev.map(item => item.cartItemId === cartItemId ? { ...item, qty: item.qty + 1 } : item);
+                    }
+
+                    let finalPrice = menu.price;
+                    let finalName = menu.name;
+                    let finalRecipe = [...menu.recipe];
+
+                    if (doubleCheese) {
+                        finalPrice += 20;
+                        finalName += ' +ดับเบิ้ลชีส';
+                        
+                        const cheeseMaterial = materials.find(m => m.name.includes('ชีส'));
+                        if (cheeseMaterial) {
+                            const existingCheeseIndex = finalRecipe.findIndex(r => r.materialId === cheeseMaterial.id);
+                            if (existingCheeseIndex >= 0) {
+                                finalRecipe[existingCheeseIndex] = { ...finalRecipe[existingCheeseIndex], amount: finalRecipe[existingCheeseIndex].amount + 2 };
+                            } else {
+                                finalRecipe.push({ materialId: cheeseMaterial.id, amount: 2 });
+                            }
+                        }
+                    }
+
+                    return [...prev, { 
+                        ...menu, 
+                        cartItemId: cartItemId, 
+                        name: finalName, 
+                        price: finalPrice,
+                        recipe: finalRecipe, 
+                        qty: 1 
+                    }];
+                });
+            };
+
+            const updateQty = (cartItemId, delta) => {
+                setCart(prev => prev.map(item => {
+                    if (item.cartItemId === cartItemId) {
+                        const newQty = item.qty + delta;
+                        return newQty > 0 ? { ...item, qty: newQty } : null;
+                    }
+                    return item;
+                }).filter(Boolean));
+            };
+
+            const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+            const handleCheckout = () => {
+                if (cart.length === 0) return;
+
+                let requiredMaterials = {};
+                cart.forEach(item => {
+                    item.recipe.forEach(r => {
+                        if (!requiredMaterials[r.materialId]) requiredMaterials[r.materialId] = 0;
+                        requiredMaterials[r.materialId] += (r.amount * item.qty);
+                    });
+                });
+
+                let isEnough = true;
+                let errorMsg = '';
+                Object.keys(requiredMaterials).forEach(matId => {
+                    let mat = materials.find(m => m.id === matId);
+                    if (!mat || mat.stock < requiredMaterials[matId]) {
+                        isEnough = false;
+                        errorMsg = `สต็อคไม่พอ: ${mat ? mat.name : 'ไม่พบวัตถุดิบ'}`;
+                    }
+                });
+
+                if (!isEnough) {
+                    showNotify(errorMsg, 'error');
+                    return;
+                }
+
+                const newMaterials = materials.map(mat => {
+                    if (requiredMaterials[mat.id]) {
+                        return { ...mat, stock: mat.stock - requiredMaterials[mat.id] };
+                    }
+                    return mat;
+                });
+
+                const totalCost = cart.reduce((sum, item) => sum + (getMenuCost(item.recipe) * item.qty), 0);
+                const finalLocation = isLineman ? 'Lineman' : (customLocation || 'หน้าร้าน');
+                
+                const newSale = {
+                    id: Date.now().toString(),
+                    date: new Date().toISOString(),
+                    location: finalLocation,
+                    items: cart,
+                    totalRevenue: totalAmount,
+                    totalCost: totalCost
+                };
+
+                setMaterials(newMaterials);
+                setSales([...sales, newSale]);
+                setCart([]);
+                setIsLineman(false); 
+                showNotify('บันทึกการขายและตัดสต็อคเรียบร้อย!');
+            };
+
+            return (
+                <div className="flex flex-col h-full relative">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 overflow-y-auto">
+                        {menus.map(menu => (
+                            <button key={menu.id} onClick={() => handleMenuClick(menu)} className="bg-white p-4 rounded-xl shadow-sm active:scale-95 transition-transform flex flex-col items-center border border-gray-100 hover:border-red-500">
+                                <span className="text-4xl mb-2">{menu.image || '🌯'}</span>
+                                <span className="font-semibold text-gray-800 text-center text-sm">{menu.name}</span>
+                                <span className="text-red-600 font-bold mt-1">฿{menu.price}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-[0_-5px_15px_-3px_rgba(0,0,0,0.1)] p-4 mt-auto">
+                        <div className="flex justify-between items-center mb-2 border-b pb-2">
+                            <h3 className="font-bold text-gray-800">รายการสั่งซื้อ (Cart)</h3>
+                        </div>
+
+                        <div className="flex space-x-2 mb-3">
+                            <input 
+                                type="text" 
+                                value={customLocation}
+                                onChange={e => setCustomLocation(e.target.value)}
+                                disabled={isLineman}
+                                placeholder="สถานที่ขาย..."
+                                className={`flex-1 border-2 rounded-lg p-2 text-xs focus:outline-none focus:border-red-500 font-medium transition-colors ${isLineman ? 'bg-gray-200 text-gray-400 border-gray-200' : 'bg-gray-50 text-gray-700 border-gray-100'}`}
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => setIsLineman(!isLineman)}
+                                className={`px-3 py-2 rounded-lg text-xs font-bold border-2 transition-all flex items-center justify-center ${isLineman ? 'bg-green-500 text-white border-green-500 shadow-md' : 'bg-white text-green-600 border-green-200 hover:bg-green-50'}`}
+                            >
+                                <i className="fas fa-motorcycle mr-1"></i> Lineman
+                            </button>
+                        </div>
+
+                        {cart.length === 0 ? (
+                            <p className="text-center text-gray-400 py-4 text-sm">ยังไม่มีรายการ</p>
+                        ) : (
+                            <div className="max-h-40 overflow-y-auto mb-3 hide-scroll space-y-2">
+                                {cart.map(item => (
+                                    <div key={item.cartItemId} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
+                                        <div className="flex-1 truncate">
+                                            <p className="font-medium text-sm text-gray-800">{item.name}</p>
+                                            <p className="text-xs text-red-600">฿{item.price * item.qty}</p>
+                                        </div>
+                                        <div className="flex items-center space-x-3 bg-white border rounded-lg px-2 py-1">
+                                            <button onClick={() => updateQty(item.cartItemId, -1)} className="text-gray-500 w-6 h-6 flex items-center justify-center hover:bg-gray-100 rounded"><i className="fas fa-minus text-xs"></i></button>
+                                            <span className="font-bold w-4 text-center text-sm">{item.qty}</span>
+                                            <button onClick={() => updateQty(item.cartItemId, 1)} className="text-amber-600 w-6 h-6 flex items-center justify-center hover:bg-red-50 rounded"><i className="fas fa-plus text-xs"></i></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <button 
+                            onClick={handleCheckout}
+                            disabled={cart.length === 0}
+                            className={`w-full py-3 rounded-xl font-bold text-lg text-white shadow-md transition-colors ${cart.length === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 active:bg-gray-900'}`}
+                        >
+                            ชำระเงิน ฿{totalAmount.toFixed(2)}
+                        </button>
+                    </div>
+
+                    {/* Options Modal */}
+                    {optionModal.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
+                                <h3 className="text-lg font-bold mb-1 text-gray-800">ออปชั่นเสริม</h3>
+                                <p className="text-sm text-gray-500 mb-5 pb-3 border-b">{optionModal.menu?.name}</p>
+                                
+                                <label className="flex items-center space-x-3 p-4 border-2 border-gray-100 rounded-xl mb-6 cursor-pointer hover:bg-gray-50 transition-colors">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={hasDoubleCheese} 
+                                        onChange={e => setHasDoubleCheese(e.target.checked)} 
+                                        className="w-5 h-5 text-red-600 border-gray-300 rounded focus:ring-red-500" 
+                                    />
+                                    <span className="font-bold text-gray-800">ดับเบิ้ลชีส <span className="text-red-600 ml-1">(+20 บาท)</span></span>
+                                </label>
+
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setOptionModal({ isOpen: false, menu: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                    <button onClick={confirmOptions} className="flex-1 py-3 rounded-lg bg-gray-900 text-white font-bold hover:bg-black shadow-md transition-colors">เพิ่มลงตะกร้า</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 3. Inventory View
+        function InventoryView({ materials, setMaterials, showNotify, stockLogs, setStockLogs }) {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [editingMatId, setEditingMatId] = useState(null); 
+            
+            const [newMat, setNewMat] = useState({ 
+                name: '', unit: '', totalPrice: '', stock: '', packCount: 1, packSize: '', category: 'ซอส',
+                isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0
+            });
+
+            const [filterCat, setFilterCat] = useState('ทั้งหมด'); 
+
+            const [stockAction, setStockAction] = useState({ isOpen: false, mat: null, type: 'receive' });
+            const [stockAmount, setStockAmount] = useState('');
+            const [lotCost, setLotCost] = useState('');
+            const [receivePackCount, setReceivePackCount] = useState('1');
+            const [receivePackSize, setReceivePackSize] = useState('');
+            const [produceBatches, setProduceBatches] = useState('1'); 
+
+            const [undoConfirm, setUndoConfirm] = useState({ isOpen: false, logId: null });
+            const [delMatConfirm, setDelMatConfirm] = useState({ isOpen: false, id: null }); 
+            const [resetConfirm, setResetConfirm] = useState(false); 
+
+            const handlePackChange = (count, size) => {
+                const total = (parseFloat(count) || 0) * (parseFloat(size) || 0);
+                setNewMat(prev => ({ ...prev, packCount: count, packSize: size, stock: total > 0 ? total : '' }));
+            };
+
+            const handleStockChange = (val) => {
+                setNewMat(prev => ({ ...prev, stock: val, packCount: 1, packSize: val }));
+            };
+
+            const handleReceivePackChange = (count, size) => {
+                setReceivePackCount(count);
+                setReceivePackSize(size);
+                const total = (parseFloat(count) || 0) * (parseFloat(size) || 0);
+                setStockAmount(total > 0 ? total.toString() : '');
+            };
+
+            const handleAddMatRecipeItem = () => {
+                setNewMat(prev => ({ ...prev, recipe: [...prev.recipe, { materialId: '', amount: '' }] }));
+            };
+            const handleUpdateMatRecipe = (index, field, value) => {
+                const newR = [...newMat.recipe];
+                newR[index][field] = value;
+                setNewMat(prev => ({ ...prev, recipe: newR }));
+            };
+            const handleRemoveMatRecipeItem = (index) => {
+                const newR = newMat.recipe.filter((_, i) => i !== index);
+                setNewMat(prev => ({ ...prev, recipe: newR }));
+            };
+
+            // คำนวณต้นทุน Real-time สำหรับ Sub-BOM
+            const getCalculatedSubBOMCost = () => {
+                if (!newMat.isSubBOM || newMat.recipe.length === 0) return 0;
+                let totalCost = 0;
+                newMat.recipe.forEach(r => {
+                    if (r.materialId && r.amount) {
+                        const mat = materials.find(m => m.id === r.materialId);
+                        if (mat) totalCost += (mat.cost * parseFloat(r.amount));
+                    }
+                });
+                const yieldAmt = parseFloat(newMat.yieldAmount) || 1;
+                const baseCost = totalCost / yieldAmt;
+                const loss = parseFloat(newMat.lossPercent) || 0;
+                return loss > 0 ? baseCost / (1 - (loss / 100)) : baseCost;
+            };
+
+            const handleUndoLog = (logId) => {
+                setUndoConfirm({ isOpen: true, logId });
+            };
+
+            const executeUndo = () => {
+                const logId = undoConfirm.logId;
+                const log = stockLogs.find(l => l.id === logId);
+                if (!log) {
+                    setUndoConfirm({ isOpen: false, logId: null });
+                    return;
+                }
+
+                setMaterials(materials.map(m => {
+                    if ((log.materialId && m.id === log.materialId) || (!log.materialId && m.name === log.materialName)) {
+                        return { ...m, stock: Math.max(0, m.stock - log.amountDiff) };
+                    }
+                    return m;
+                }));
+
+                setStockLogs(stockLogs.filter(l => l.id !== logId));
+                setUndoConfirm({ isOpen: false, logId: null });
+                showNotify('ยกเลิกรายการเรียบร้อย');
+            };
+
+            const handleUpdateStock = (id, amount, type, newCostPerUnit = null) => {
+                if (amount === '' || isNaN(amount)) return;
+                const parsedAmount = parseFloat(amount);
+                let newLogs = [...stockLogs];
+
+                setMaterials(materials.map(m => {
+                    if (m.id === id) {
+                        if (type === 'waste') {
+                            const lostCost = parsedAmount * m.cost;
+                            newLogs.push({
+                                id: Date.now().toString(), date: new Date().toISOString(),
+                                materialId: m.id, materialName: m.name, type: 'ของเสีย', amountDiff: -parsedAmount, unit: m.unit, lostCost: lostCost
+                            });
+                            return { ...m, stock: Math.max(0, m.stock - parsedAmount) };
+                        } else if (type === 'check') {
+                            const diff = parsedAmount - m.stock;
+                            if (diff !== 0) {
+                                const isLost = diff < 0;
+                                const lostCost = Math.abs(diff) * m.cost;
+                                newLogs.push({
+                                    id: Date.now().toString(), date: new Date().toISOString(),
+                                    materialId: m.id, materialName: m.name, type: isLost ? 'สต็อคขาด' : 'สต็อคเกิน', 
+                                    amountDiff: diff, unit: m.unit, lostCost: isLost ? lostCost : -lostCost
+                                });
+                            }
+                            return { ...m, stock: Math.max(0, parsedAmount) };
+                        } else {
+                            let newAvgCost = m.cost;
+                            let addedTotalCost = 0;
+                            
+                            if (newCostPerUnit !== null && !isNaN(newCostPerUnit)) {
+                                // หากรับเข้าแล้วมี % Loss ให้ปรับต้นทุนสะท้อนตามจริง
+                                const lossFactor = m.lossPercent > 0 ? (1 - (m.lossPercent / 100)) : 1;
+                                const effectiveCostPerUnit = newCostPerUnit / lossFactor;
+                                
+                                const currentTotalValue = m.stock * m.cost;
+                                const newTotalValue = parsedAmount * effectiveCostPerUnit;
+                                addedTotalCost = newTotalValue;
+                                const newStock = m.stock + parsedAmount;
+                                newAvgCost = newStock > 0 ? (currentTotalValue + newTotalValue) / newStock : m.cost;
+                            } else {
+                                addedTotalCost = parsedAmount * m.cost;
+                            }
+                            
+                            newLogs.push({
+                                id: Date.now().toString(), date: new Date().toISOString(),
+                                materialId: m.id, materialName: m.name, type: 'รับเข้า', amountDiff: parsedAmount, unit: m.unit, lostCost: -addedTotalCost
+                            });
+                            
+                            return { ...m, stock: m.stock + parsedAmount, cost: newAvgCost };
+                        }
+                    }
+                    return m;
+                }));
+                
+                if (newLogs.length !== stockLogs.length) {
+                    setStockLogs(newLogs);
+                }
+                showNotify(`อัปเดตสต็อคเรียบร้อย!`);
+            };
+
+            const confirmStockUpdate = (e) => {
+                e.preventDefault();
+                const costPerUnit = lotCost ? (parseFloat(lotCost) / parseFloat(stockAmount)) : null;
+                handleUpdateStock(stockAction.mat.id, stockAmount, stockAction.type, costPerUnit);
+                setStockAction({ isOpen: false, mat: null, type: 'receive' });
+                setStockAmount('');
+                setLotCost('');
+                setReceivePackCount('1');
+                setReceivePackSize('');
+            };
+
+            const executeProduce = (e) => {
+                e.preventDefault();
+                const batches = parseFloat(produceBatches);
+                if (isNaN(batches) || batches <= 0) return;
+
+                const mat = stockAction.mat;
+                let requiredMaterials = {};
+                mat.recipe.forEach(r => {
+                    if (!requiredMaterials[r.materialId]) requiredMaterials[r.materialId] = 0;
+                    requiredMaterials[r.materialId] += (r.amount * batches);
+                });
+
+                let isEnough = true;
+                let errorMsg = '';
+                Object.keys(requiredMaterials).forEach(matId => {
+                    let rMat = materials.find(m => m.id === matId);
+                    if (!rMat || rMat.stock < requiredMaterials[matId]) {
+                        isEnough = false;
+                        errorMsg = `วัตถุดิบไม่พอ: ${rMat ? rMat.name : 'ไม่พบข้อมูล'} (ต้องการ ${requiredMaterials[matId]})`;
+                    }
+                });
+
+                if (!isEnough) {
+                    showNotify(errorMsg, 'error');
+                    return;
+                }
+
+                let newLogs = [...stockLogs];
+                const timestamp = new Date().toISOString();
+                const logIdBase = Date.now();
+
+                const updatedMaterials = materials.map(m => {
+                    if (requiredMaterials[m.id]) {
+                        const usedAmount = requiredMaterials[m.id];
+                        newLogs.push({
+                            id: (logIdBase + Math.random()).toString(),
+                            date: timestamp,
+                            materialId: m.id, materialName: m.name, type: 'ใช้ผสม', amountDiff: -usedAmount, unit: m.unit, lostCost: usedAmount * m.cost
+                        });
+                        return { ...m, stock: m.stock - usedAmount };
+                    }
+                    if (m.id === mat.id) {
+                        const producedAmount = mat.yieldAmount * batches;
+                        newLogs.push({
+                            id: (logIdBase + Math.random()).toString(),
+                            date: timestamp,
+                            materialId: m.id, materialName: m.name, type: 'ผลิตเสร็จ', amountDiff: producedAmount, unit: m.unit, lostCost: -(producedAmount * m.cost)
+                        });
+                        return { ...m, stock: m.stock + producedAmount };
+                    }
+                    return m;
+                });
+
+                setMaterials(updatedMaterials);
+                setStockLogs(newLogs);
+                setStockAction({ isOpen: false, mat: null, type: 'receive' });
+                setProduceBatches('1');
+                showNotify('ผสมวัตถุดิบสำเร็จ สต็อคอัปเดตแล้ว!');
+            };
+
+            const openAddModal = () => {
+                setNewMat({ 
+                    name: '', unit: '', totalPrice: '', stock: '', packCount: 1, packSize: '', category: 'ซอส',
+                    isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0
+                });
+                setEditingMatId(null);
+                setShowAddModal(true);
+            };
+
+            const handleEditClick = (mat) => {
+                setNewMat({ 
+                    name: mat.name, 
+                    unit: mat.unit, 
+                    totalPrice: (mat.cost * mat.stock).toFixed(2), 
+                    stock: mat.stock,
+                    packCount: 1,
+                    packSize: mat.stock,
+                    category: mat.category || 'จิปาถะ',
+                    isSubBOM: mat.isSubBOM || false,
+                    recipe: mat.recipe?.length > 0 ? mat.recipe.map(r => ({...r})) : [{ materialId: '', amount: '' }],
+                    yieldAmount: mat.yieldAmount || 1,
+                    lossPercent: mat.lossPercent || 0
+                });
+                setEditingMatId(mat.id);
+                setShowAddModal(true);
+            };
+
+            const handleDeleteClick = (id) => {
+                setDelMatConfirm({ isOpen: true, id });
+            };
+
+            const executeDeleteMat = () => {
+                setMaterials(materials.filter(m => m.id !== delMatConfirm.id));
+                setDelMatConfirm({ isOpen: false, id: null });
+                showNotify('ลบวัตถุดิบเรียบร้อยแล้ว');
+            };
+
+            const executeReset = () => {
+                setMaterials(materials.map(m => ({ ...m, stock: 0 })));
+                setResetConfirm(false);
+                showNotify('รีเซ็ตจำนวนสต็อคทั้งหมดเป็น 0 เรียบร้อยแล้ว');
+            };
+
+            const handleAddMaterial = (e) => {
+                e.preventDefault();
+                if (!newMat.name || !newMat.unit) return;
+
+                let finalCost = 0;
+                let finalRecipe = [];
+                let yieldAmt = 1;
+                let finalStock = parseFloat(newMat.stock) || 0;
+                const lossVal = parseFloat(newMat.lossPercent) || 0;
+
+                if (newMat.isSubBOM) {
+                    finalRecipe = newMat.recipe.filter(r => r.materialId && r.amount).map(r => ({ ...r, amount: parseFloat(r.amount) }));
+                    yieldAmt = parseFloat(newMat.yieldAmount) || 1;
+                    if (finalRecipe.length === 0) {
+                        showNotify('กรุณาระบุวัตถุดิบที่ใช้ผสมอย่างน้อย 1 รายการ', 'error');
+                        return;
+                    }
+                    finalCost = getCalculatedSubBOMCost();
+                } else {
+                    if (!newMat.totalPrice || newMat.stock === '') return;
+                    const totalPriceVal = parseFloat(newMat.totalPrice);
+                    const baseCost = finalStock > 0 ? (totalPriceVal / finalStock) : 0;
+                    // เพิ่มสูตรคำนวณ % Loss ของวัตถุดิบที่ซื้อเข้ามา
+                    finalCost = lossVal > 0 ? baseCost / (1 - (lossVal / 100)) : baseCost;
+                }
+
+                if (editingMatId) {
+                    setMaterials(materials.map(m => m.id === editingMatId ? {
+                        ...m,
+                        name: newMat.name,
+                        unit: newMat.unit,
+                        cost: finalCost,
+                        stock: finalStock,
+                        category: newMat.category || 'จิปาถะ',
+                        isSubBOM: newMat.isSubBOM,
+                        recipe: finalRecipe,
+                        yieldAmount: yieldAmt,
+                        lossPercent: lossVal
+                    } : m));
+                    showNotify('แก้ไขวัตถุดิบเรียบร้อยแล้ว');
+                } else {
+                    const newItem = {
+                        id: 'm' + Date.now(),
+                        name: newMat.name,
+                        unit: newMat.unit,
+                        cost: finalCost,
+                        stock: finalStock,
+                        category: newMat.category || 'จิปาถะ',
+                        isSubBOM: newMat.isSubBOM,
+                        recipe: finalRecipe,
+                        yieldAmount: yieldAmt,
+                        lossPercent: lossVal
+                    };
+                    setMaterials([...materials, newItem]);
+                    showNotify('เพิ่มวัตถุดิบใหม่แล้ว');
+                }
+                setShowAddModal(false);
+            };
+
+            const displayedMaterials = materials.filter(m => filterCat === 'ทั้งหมด' || (m.category || 'จิปาถะ') === filterCat);
+            const categoriesList = ['ทั้งหมด', 'เนื้อสัตว์', 'ผัก', 'ซอส', 'ชีส', 'แป้ง', 'บรรจุภัณฑ์', 'จิปาถะ'];
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-lg font-bold text-gray-700">วัตถุดิบ & สต็อค</h2>
+                        <div className="flex space-x-2">
+                            <button onClick={() => setResetConfirm(true)} className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-sm font-bold flex items-center">
+                                <i className="fas fa-trash-alt mr-1"></i> ล้างข้อมูล
+                            </button>
+                            <button onClick={openAddModal} className="bg-gray-900 text-white px-3 py-1 rounded-lg text-sm font-bold flex items-center shadow-sm">
+                                <i className="fas fa-plus mr-1"></i> เพิ่ม
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex overflow-x-auto hide-scroll space-x-2 mb-4 pb-1">
+                        {categoriesList.map(cat => (
+                            <button 
+                                key={cat}
+                                onClick={() => setFilterCat(cat)}
+                                className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${filterCat === cat ? 'bg-red-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="space-y-3">
+                        {displayedMaterials.map(mat => (
+                            <div key={mat.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                                <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                        <div className="flex items-center mb-1 space-x-1">
+                                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] rounded font-bold border border-gray-200">{mat.category || 'จิปาถะ'}</span>
+                                            {mat.isSubBOM && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-bold">📦 ผสมเอง</span>}
+                                            {mat.lossPercent > 0 && <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] rounded font-bold">Loss {mat.lossPercent}%</span>}
+                                        </div>
+                                        <h3 className="font-bold text-gray-800">{mat.name}</h3>
+                                        <p className="text-xs text-gray-500">ต้นทุนจริง: ฿{mat.cost.toFixed(2)}/{mat.unit}</p>
+                                    </div>
+                                    <div className="flex flex-col items-end">
+                                        <div className="flex space-x-3 mb-1">
+                                            <button onClick={() => handleEditClick(mat)} className="text-blue-500 hover:text-blue-700 p-1 transition-colors"><i className="fas fa-edit"></i></button>
+                                            <button onClick={() => handleDeleteClick(mat.id)} className="text-red-400 hover:text-red-600 p-1 transition-colors"><i className="fas fa-trash-can"></i></button>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-lg text-red-600">{parseFloat(mat.stock).toFixed(2)}</p>
+                                            <p className="text-xs text-gray-500">{mat.unit}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex space-x-2 mt-3 pt-3 border-t border-gray-50">
+                                    {mat.isSubBOM ? (
+                                        <button onClick={() => {
+                                            setStockAction({ isOpen: true, mat: mat, type: 'produce' });
+                                            setProduceBatches('1');
+                                        }} className="flex-1 bg-purple-50 text-purple-700 py-2 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-colors">
+                                            <i className="fas fa-blender mr-1"></i> ผสม (ผลิต)
+                                        </button>
+                                    ) : (
+                                        <button onClick={() => {
+                                            setStockAction({ isOpen: true, mat: mat, type: 'receive' });
+                                            setReceivePackCount('1');
+                                            setReceivePackSize('');
+                                            setStockAmount('');
+                                            setLotCost('');
+                                        }} className="flex-1 bg-green-50 text-green-700 py-2 rounded-lg text-xs font-semibold hover:bg-green-100 transition-colors">
+                                            <i className="fas fa-box-open mr-1"></i> รับเข้า
+                                        </button>
+                                    )}
+                                    <button onClick={() => {
+                                        setStockAction({ isOpen: true, mat: mat, type: 'check' });
+                                        setStockAmount('');
+                                    }} className="flex-1 bg-blue-50 text-blue-700 py-2 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors">
+                                        <i className="fas fa-scale-balanced mr-1"></i> นับจริง
+                                    </button>
+                                    <button onClick={() => {
+                                        setStockAction({ isOpen: true, mat: mat, type: 'waste' });
+                                        setStockAmount('');
+                                    }} className="flex-1 bg-red-50 text-red-700 py-2 rounded-lg text-xs font-semibold hover:bg-red-100 transition-colors">
+                                        <i className="fas fa-trash-can mr-1"></i> ของเสีย
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Action Modals */}
+                    {stockAction.isOpen && stockAction.type !== 'produce' && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
+                                <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center">
+                                    <i className={`fas ${
+                                        stockAction.type === 'waste' ? 'fa-trash-can text-red-500' : 
+                                        stockAction.type === 'check' ? 'fa-scale-balanced text-blue-500' : 'fa-box-open text-green-500'
+                                    } mr-2`}></i>
+                                    {stockAction.type === 'waste' ? 'บันทึกของเสีย' : 
+                                     stockAction.type === 'check' ? 'ปรับปรุงสต็อคจริง (นับจริง)' : 'รับเข้าสต็อค'}: 
+                                     <span className="ml-1 text-red-600">{stockAction.mat?.name}</span>
+                                </h3>
+                                <form onSubmit={confirmStockUpdate} className="space-y-4">
+                                    {stockAction.type === 'receive' && (
+                                        <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mb-2">
+                                            <label className="text-xs font-bold text-gray-700 block mb-2"><i className="fas fa-calculator mr-1"></i> ตัวช่วยคำนวณปริมาณ</label>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="text-xs text-gray-500">จำนวนที่ซื้อ (แพ็ค/ถุง)</label>
+                                                    <input type="number" step="0.01" value={receivePackCount} onChange={e => handleReceivePackChange(e.target.value, receivePackSize)} className="w-full border border-gray-200 rounded p-2 text-sm focus:border-red-500 focus:outline-none" placeholder="เช่น 1" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500">ปริมาณต่อ 1 ถุง</label>
+                                                    <input type="number" step="0.01" value={receivePackSize} onChange={e => handleReceivePackChange(receivePackCount, e.target.value)} className="w-full border border-gray-200 rounded p-2 text-sm focus:border-red-500 focus:outline-none" placeholder="เช่น 870" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-2 block font-medium">
+                                            {stockAction.type === 'check' ? `กรอกยอดที่มีอยู่จริงบนตาชั่ง (${stockAction.mat?.unit})` : `รวมปริมาณที่จะบันทึก (${stockAction.mat?.unit})`}
+                                        </label>
+                                        <input 
+                                            required 
+                                            type="number" 
+                                            step="0.01"
+                                            value={stockAmount} 
+                                            onChange={e => {
+                                                setStockAmount(e.target.value);
+                                                if(stockAction.type === 'receive') {
+                                                    setReceivePackCount('1');
+                                                    setReceivePackSize(e.target.value);
+                                                }
+                                            }} 
+                                            className={`w-full border-2 border-gray-200 rounded-lg p-3 bg-gray-50 text-lg focus:border-red-500 focus:outline-none transition-colors ${stockAction.type === 'receive' ? 'font-bold text-red-600' : ''}`} 
+                                            autoFocus
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    
+                                    {stockAction.type === 'receive' && (
+                                        <div>
+                                            <label className="text-sm text-gray-600 mb-2 block font-medium">
+                                                ต้นทุนรวมของล็อตนี้ (บาท)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01"
+                                                value={lotCost} 
+                                                onChange={e => setLotCost(e.target.value)} 
+                                                className="w-full border-2 border-gray-200 rounded-lg p-3 bg-gray-50 text-lg focus:border-red-500 focus:outline-none transition-colors" 
+                                                placeholder={`อ้างอิงต้นทุนเดิม: ${(stockAction.mat?.cost * (stockAmount || 1)).toFixed(2)}`}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="flex space-x-3 mt-6">
+                                        <button type="button" onClick={() => { setStockAction({ isOpen: false, mat: null, type: 'receive' }); setStockAmount(''); setLotCost(''); setReceivePackCount('1'); setReceivePackSize(''); }} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                        <button type="submit" className={`flex-1 py-3 rounded-lg text-white font-bold transition-colors shadow-md ${
+                                            stockAction.type === 'waste' ? 'bg-red-600 hover:bg-red-700' : 
+                                            stockAction.type === 'check' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
+                                        }`}>
+                                            ยืนยัน
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Produce Modal */}
+                    {stockAction.isOpen && stockAction.type === 'produce' && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm m-auto">
+                                <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center border-b pb-2">
+                                    <i className="fas fa-blender text-purple-600 mr-2"></i>
+                                    บันทึกการผสม: <span className="ml-1 text-purple-700">{stockAction.mat?.name}</span>
+                                </h3>
+                                <form onSubmit={executeProduce} className="space-y-4">
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-2 block font-medium">ต้องการทำกี่สูตร (กี่ชุด)?</label>
+                                        <input 
+                                            required type="number" step="0.5" value={produceBatches} 
+                                            onChange={e => setProduceBatches(e.target.value)} 
+                                            className="w-full border-2 border-purple-200 rounded-lg p-3 bg-purple-50 text-lg font-bold text-purple-700 focus:border-purple-500 focus:outline-none text-center" 
+                                        />
+                                    </div>
+                                    <div className="bg-gray-50 p-3 rounded-lg text-sm border border-gray-100">
+                                        <p className="font-bold text-gray-700 mb-2">วัตถุดิบที่จะถูกหักออกจากสต็อค:</p>
+                                        <ul className="space-y-1">
+                                            {stockAction.mat?.recipe.map((r, i) => {
+                                                const rawMat = materials.find(m => m.id === r.materialId);
+                                                const amountNeeded = r.amount * (parseFloat(produceBatches) || 0);
+                                                return rawMat ? (
+                                                    <li key={i} className="flex justify-between text-gray-600 text-xs">
+                                                        <span>{rawMat.name}</span>
+                                                        <span className="font-semibold text-red-500">-{amountNeeded} {rawMat.unit}</span>
+                                                    </li>
+                                                ) : null;
+                                            })}
+                                        </ul>
+                                        <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between font-bold text-purple-700">
+                                            <span>ผลผลิตที่ได้:</span>
+                                            <span>+{(stockAction.mat?.yieldAmount * (parseFloat(produceBatches) || 0)).toFixed(2)} {stockAction.mat?.unit}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex space-x-3 mt-6">
+                                        <button type="button" onClick={() => setStockAction({ isOpen: false, mat: null, type: 'receive' })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                        <button type="submit" className="flex-1 py-3 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700 shadow-md transition-colors">ยืนยันผสม</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add/Edit Material Modal */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm m-auto">
+                                <h3 className="text-lg font-bold mb-4">{editingMatId ? 'แก้ไขวัตถุดิบ' : 'เพิ่มวัตถุดิบใหม่'}</h3>
+                                <form onSubmit={handleAddMaterial} className="space-y-3">
+                                    <div>
+                                        <label className="text-xs text-gray-500">ชื่อวัตถุดิบ</label>
+                                        <input required type="text" value={newMat.name} onChange={e => setNewMat({...newMat, name: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs text-gray-500">หมวดหมู่</label>
+                                            <select required value={newMat.category} onChange={e => setNewMat({...newMat, category: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none">
+                                                <option value="เนื้อสัตว์">เนื้อสัตว์</option>
+                                                <option value="ผัก">ผัก</option>
+                                                <option value="ซอส">ซอส</option>
+                                                <option value="ชีส">ชีส</option>
+                                                <option value="แป้ง">แป้ง</option>
+                                                <option value="บรรจุภัณฑ์">บรรจุภัณฑ์</option>
+                                                <option value="จิปาถะ">จิปาถะ</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500">หน่วย (เช่น กรัม, มล.)</label>
+                                            <input required type="text" value={newMat.unit} onChange={e => setNewMat({...newMat, unit: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" />
+                                        </div>
+                                    </div>
+
+                                    {/* ส่วนเพิ่ม % Loss ของวัตถุดิบ */}
+                                    <div>
+                                        <label className="text-xs text-gray-500">เปอร์เซ็นต์ Loss การสูญเสีย (%)</label>
+                                        <input type="number" step="0.1" min="0" max="99" value={newMat.lossPercent} onChange={e => setNewMat({...newMat, lossPercent: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none font-semibold text-orange-600" placeholder="เช่น 10% สำหรับผักหรือแต่งเนื้อ" />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 mt-2">
+                                        <div>
+                                            <p className="text-sm font-bold text-gray-700">วัตถุดิบนี้ต้องผสมเอง</p>
+                                        </div>
+                                        <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                            <input type="checkbox" name="toggle" id="toggleSubBOM" checked={newMat.isSubBOM} onChange={e => setNewMat({...newMat, isSubBOM: e.target.checked})} className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-gray-300 z-10" />
+                                            <label htmlFor="toggleSubBOM" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
+                                        </div>
+                                    </div>
+
+                                    {newMat.isSubBOM ? (
+                                        <div className="border-t border-purple-100 pt-3 mt-2 animate-fade-in">
+                                            <div className="flex justify-between items-end mb-2">
+                                                <label className="text-xs font-bold text-purple-700">สูตรที่ใช้ผสม</label>
+                                                <button type="button" onClick={handleAddMatRecipeItem} className="text-[10px] bg-purple-100 text-purple-700 px-2 py-1 rounded font-bold"><i className="fas fa-plus"></i> เพิ่มส่วนผสม</button>
+                                            </div>
+                                            <div className="space-y-2 mb-3 max-h-40 overflow-y-auto pr-1">
+                                                {newMat.recipe.map((item, index) => (
+                                                    <div key={index} className="flex space-x-2 items-center">
+                                                        <select required value={item.materialId} onChange={e => handleUpdateMatRecipe(index, 'materialId', e.target.value)} className="flex-1 border rounded p-1.5 text-xs focus:border-purple-500 focus:outline-none bg-gray-50">
+                                                            <option value="">-- เลือกวัตถุดิบ --</option>
+                                                            {materials.filter(m => m.id !== editingMatId).map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                                                        </select>
+                                                        <input required type="number" step="0.01" placeholder="ปริมาณ" value={item.amount} onChange={e => handleUpdateMatRecipe(index, 'amount', e.target.value)} className="w-16 border rounded p-1.5 text-xs focus:border-purple-500 focus:outline-none bg-gray-50 text-center" />
+                                                        <button type="button" onClick={() => handleRemoveMatRecipeItem(index)} className="text-red-400 p-1 hover:text-red-600"><i className="fas fa-times"></i></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
+                                                <label className="text-xs text-purple-800 font-bold block mb-1">ทำ 1 สูตร ได้ปริมาณรวมทั้งหมดเท่าไหร่?</label>
+                                                <div className="flex items-center space-x-2">
+                                                    <input required type="number" step="0.01" value={newMat.yieldAmount} onChange={e => setNewMat({...newMat, yieldAmount: e.target.value})} className="w-full border rounded p-2 text-sm focus:border-purple-500 focus:outline-none" />
+                                                    <span className="text-xs text-gray-600">{newMat.unit}</span>
+                                                </div>
+                                            </div>
+                                            <div className="mt-3 text-right">
+                                                <span className="text-xs text-gray-500">ต้นทุนคำนวณจริง (+Loss): </span>
+                                                <span className="font-bold text-red-600">฿{getCalculatedSubBOMCost().toFixed(2)}/{newMat.unit}</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="animate-fade-in">
+                                            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mt-3">
+                                                <label className="text-xs font-bold text-gray-700 block mb-2"><i className="fas fa-calculator mr-1"></i> ตัวช่วยคำนวณปริมาณที่ซื้อมา</label>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="text-xs text-gray-500">จำนวนที่ซื้อ (แพ็ค/ถุง)</label>
+                                                        <input required type="number" step="0.01" value={newMat.packCount} onChange={e => handlePackChange(e.target.value, newMat.packSize)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" placeholder="เช่น 1" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs text-gray-500">ปริมาณต่อ 1 แพ็ค</label>
+                                                        <input required type="number" step="0.01" value={newMat.packSize} onChange={e => handlePackChange(newMat.packCount, e.target.value)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" placeholder="เช่น 870" />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
+                                                <div>
+                                                    <label className="text-xs text-gray-500">รวมได้ปริมาณ ({newMat.unit})</label>
+                                                    <input required type="number" step="0.01" value={newMat.stock} onChange={e => handleStockChange(e.target.value)} className="w-full border rounded-lg p-2 mt-1 font-bold text-red-600 focus:border-red-500 focus:outline-none" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500">ราคาที่ซื้อรวม (บาท)</label>
+                                                    <input required type="number" step="0.01" value={newMat.totalPrice} onChange={e => setNewMat({...newMat, totalPrice: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" />
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-gray-100 text-gray-800 p-3 rounded-lg text-sm flex justify-between items-center mt-2 border border-gray-200">
+                                                <span className="font-semibold text-xs">ต้นทุนสะท้อนจริง (+Loss):</span>
+                                                <span className="font-bold text-lg">
+                                                    { (() => {
+                                                        const s = parseFloat(newMat.stock) || 0;
+                                                        const p = parseFloat(newMat.totalPrice) || 0;
+                                                        const l = parseFloat(newMat.lossPercent) || 0;
+                                                        const base = s > 0 ? p / s : 0;
+                                                        return l > 0 ? (base / (1 - (l / 100))).toFixed(2) : base.toFixed(2);
+                                                    })() } <span className="text-xs font-normal">บาท/{newMat.unit}</span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex space-x-3 mt-5">
+                                        <button type="button" onClick={() => { setShowAddModal(false); setEditingMatId(null); }} className="flex-1 py-2 rounded-lg bg-gray-100 text-gray-600 font-bold">ยกเลิก</button>
+                                        <button type="submit" className={`flex-1 py-2 rounded-lg text-white font-bold ${editingMatId ? 'bg-blue-600' : 'bg-gray-900'}`}>
+                                            {editingMatId ? 'บันทึกการแก้ไข' : 'บันทึก'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Material Confirm Modal */}
+                    {delMatConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-trash-can"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการลบวัตถุดิบ</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการลบวัตถุดิบนี้ออกจากระบบใช่หรือไม่?</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setDelMatConfirm({ isOpen: false, id: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                    <button onClick={executeDeleteMat} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ลบวัตถุดิบ</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Reset All Materials Confirm Modal */}
+                    {resetConfirm && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-exclamation-triangle"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการล้างจำนวนสต็อค</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการรีเซ็ตจำนวนสต็อค "ทั้งหมดให้เป็น 0" ใช่หรือไม่?<br/>(รายชื่อวัตถุดิบจะยังคงอยู่เหมือนเดิม)</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setResetConfirm(false)} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                    <button onClick={executeReset} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันรีเซ็ตเป็น 0</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ส่วนแสดงประวัติการเคลื่อนไหวสต็อค */}
+                    <div className="mt-8">
+                        <h2 className="text-lg font-bold text-gray-700 mb-3 flex items-center border-b pb-2">
+                            <i className="fas fa-clipboard-list mr-2 text-red-600"></i> ประวัติการเคลื่อนไหวสต็อค
+                        </h2>
+                        {stockLogs.length === 0 ? (
+                            <p className="text-center text-gray-400 py-4 text-sm bg-white rounded-xl shadow-sm">ยังไม่มีประวัติการปรับสต็อค</p>
+                        ) : (
+                            <div className="space-y-2 max-h-60 overflow-y-auto hide-scroll">
+                                {[...stockLogs].sort((a, b) => new Date(b.date) - new Date(a.date)).map(log => (
+                                    <div key={log.id} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center text-sm">
+                                        <div>
+                                            <div className="flex items-center space-x-2">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${
+                                                    log.type === 'ของเสีย' ? 'bg-red-500' : 
+                                                    log.type === 'สต็อคขาด' ? 'bg-orange-500' : 
+                                                    log.type === 'รับเข้า' ? 'bg-blue-500' : 
+                                                    log.type === 'ผลิตเสร็จ' ? 'bg-purple-500' :
+                                                    log.type === 'ใช้ผสม' ? 'bg-gray-500' : 'bg-green-500'
+                                                }`}>{log.type}</span>
+                                                <span className="font-bold text-gray-800">{log.materialName}</span>
+                                            </div>
+                                            <p className="text-xs text-gray-400 mt-1">{new Date(log.date).toLocaleString('th-TH')}</p>
+                                        </div>
+                                        <div className="text-right flex flex-col items-end">
+                                            <p className={`font-bold ${log.amountDiff < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                                                {log.amountDiff > 0 ? '+' : ''}{log.amountDiff.toFixed(2)} {log.unit}
+                                            </p>
+                                            <p className="text-xs text-gray-500 mb-2">
+                                                {log.type === 'รับเข้า' || log.type === 'ผลิตเสร็จ'
+                                                    ? `มูลค่า ฿${Math.abs(log.lostCost || 0).toFixed(2)}` 
+                                                    : (log.lostCost > 0 ? `ทุนหาย ฿${log.lostCost.toFixed(2)}` : `คืนทุน ฿${Math.abs(log.lostCost || 0).toFixed(2)}`)}
+                                            </p>
+                                            <button onClick={() => handleUndoLog(log.id)} className="text-[10px] text-red-500 hover:text-white hover:bg-red-500 bg-red-50 px-2 py-1 rounded transition-colors">
+                                                <i className="fas fa-undo mr-1"></i> ยกเลิก
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Undo Confirmation Modal */}
+                    {undoConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center transform transition-all scale-100">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-exclamation-circle"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการยกเลิก</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการยกเลิกประวัตินี้<br/>และดึงยอดสต็อคกลับคืนใช่หรือไม่?</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setUndoConfirm({ isOpen: false, logId: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ปิดหน้าต่าง</button>
+                                    <button onClick={executeUndo} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันยกเลิก</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 4. Menu View
+        function MenuView({ menus, setMenus, materials, getMenuCost, showNotify }) {
+            const [showAdd, setShowAdd] = useState(false);
+            const [editingMenuId, setEditingMenuId] = useState(null);
+            const [newMenu, setNewMenu] = useState({ name: '', price: '', image: '🌯' });
+            const [recipe, setRecipe] = useState([{ materialId: '', amount: '' }]);
+            const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, menuId: null });
+
+            const handleAddRecipeItem = () => setRecipe([...recipe, { materialId: '', amount: '' }]);
+            
+            const handleUpdateRecipe = (index, field, value) => {
+                const newR = [...recipe];
+                newR[index][field] = value;
+                setRecipe(newR);
+            };
+
+            const handleRemoveRecipeItem = (index) => {
+                setRecipe(recipe.filter((_, i) => i !== index));
+            };
+
+            const resetForm = () => {
+                setNewMenu({ name: '', price: '', image: '🌯' });
+                setRecipe([{ materialId: '', amount: '' }]);
+                setEditingMenuId(null);
+                setShowAdd(false);
+            };
+
+            const handleEditMenu = (menu) => {
+                setNewMenu({ name: menu.name, price: menu.price, image: menu.image || '🌯' });
+                setRecipe(menu.recipe.length > 0 ? menu.recipe.map(r => ({ materialId: r.materialId, amount: r.amount })) : [{ materialId: '', amount: '' }]);
+                setEditingMenuId(menu.id);
+                setShowAdd(true);
+            };
+
+            const confirmDelete = (menuId) => {
+                setDeleteConfirm({ isOpen: true, menuId });
+            };
+
+            const executeDelete = () => {
+                setMenus(menus.filter(m => m.id !== deleteConfirm.menuId));
+                setDeleteConfirm({ isOpen: false, menuId: null });
+                showNotify('ลบเมนูเรียบร้อยแล้ว');
+            };
+
+            const handleSaveMenu = (e) => {
+                e.preventDefault();
+                const validRecipe = recipe.filter(r => r.materialId && r.amount).map(r => ({ ...r, amount: parseFloat(r.amount) }));
+                
+                if (!newMenu.name || !newMenu.price || validRecipe.length === 0) {
+                    showNotify('กรุณากรอกข้อมูลและเลือกวัตถุดิบให้ครบถ้วน', 'error');
+                    return;
+                }
+
+                if (editingMenuId) {
+                    setMenus(menus.map(m => m.id === editingMenuId ? {
+                        ...m,
+                        name: newMenu.name,
+                        price: parseFloat(newMenu.price),
+                        image: newMenu.image,
+                        recipe: validRecipe
+                    } : m));
+                    showNotify('แก้ไขเมนูสำเร็จ!');
+                } else {
+                    const menuItem = {
+                        id: 'menu' + Date.now(),
+                        name: newMenu.name,
+                        price: parseFloat(newMenu.price),
+                        image: newMenu.image,
+                        recipe: validRecipe
+                    };
+                    setMenus([...menus, menuItem]);
+                    showNotify('สร้างเมนูสำเร็จ!');
+                }
+                resetForm();
+            };
+
+            return (
+                <div>
+                    {!showAdd ? (
+                        // --- หน้าแสดงรายการเมนู (แผงหลัก) ---
+                        <div>
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-lg font-bold text-gray-700">รายการเมนู</h2>
+                                <button onClick={() => { resetForm(); setShowAdd(true); }} className="bg-gray-900 text-white px-3 py-1 rounded-lg text-sm font-bold flex items-center">
+                                    <i className="fas fa-plus mr-1"></i> สร้างเมนู
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                {menus.map(menu => {
+                                    const cost = getMenuCost(menu.recipe);
+                                    const profit = menu.price - cost;
+                                    const margin = (profit / menu.price) * 100;
+                                    
+                                    return (
+                                        <div key={menu.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex items-center">
+                                                    <span className="text-2xl mr-3">{menu.image}</span>
+                                                    <h3 className="font-bold text-gray-800 text-lg">{menu.name}</h3>
+                                                </div>
+                                                <div className="flex items-center space-x-3">
+                                                    <span className="font-bold text-red-600 text-lg mr-2">฿{menu.price}</span>
+                                                    <button onClick={() => handleEditMenu(menu)} className="text-blue-500 hover:text-blue-700 p-1 transition-colors"><i className="fas fa-edit"></i></button>
+                                                    <button onClick={() => confirmDelete(menu.id)} className="text-red-400 hover:text-red-600 p-1 transition-colors"><i className="fas fa-trash-can"></i></button>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between text-xs mt-3 pt-2 border-t border-gray-50">
+                                                <span className="text-gray-500">ต้นทุนรวม: <strong className="text-red-500 font-bold">฿{cost.toFixed(2)}</strong></span>
+                                                <span className="text-gray-500">กำไร/ชิ้น: <strong className="text-green-600 font-bold">฿{profit.toFixed(2)} ({margin.toFixed(0)}%)</strong></span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        // --- หน้าฟอร์ม สร้าง/แก้ไขเมนู (แตกราคาและโชว์รายละเอียดต้นทุนที่นี่) ---
+                        <div className="bg-white rounded-xl shadow-sm p-4">
+                            <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                <h2 className="text-lg font-bold text-gray-800">{editingMenuId ? 'แก้ไขเมนู' : 'สร้างเมนูใหม่'}</h2>
+                                <button onClick={resetForm} className="text-gray-400 hover:text-red-500"><i className="fas fa-times text-xl"></i></button>
+                            </div>
+                            <form onSubmit={handleSaveMenu} className="space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="col-span-2">
+                                        <label className="text-xs text-gray-500">ชื่อเมนู</label>
+                                        <input required type="text" value={newMenu.name} onChange={e => setNewMenu({...newMenu, name: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 focus:border-red-500 focus:outline-none" placeholder="เช่น เคบับไก่" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500">ราคาขาย (บาท)</label>
+                                        <input required type="number" value={newMenu.price} onChange={e => setNewMenu({...newMenu, price: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 focus:border-red-500 focus:outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500">ไอคอน (Emoji)</label>
+                                        <input type="text" value={newMenu.image} onChange={e => setNewMenu({...newMenu, image: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 text-center focus:border-red-500 focus:outline-none" />
+                                    </div>
+                                </div>
+
+                                <div className="border-t pt-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="text-sm font-bold text-gray-700">ระบุส่วนประกอบสูตรอาหาร</label>
+                                        <button type="button" onClick={handleAddRecipeItem} className="text-xs bg-gray-900 text-white px-2 py-1 rounded font-bold"><i className="fas fa-plus"></i> เพิ่มวัตถุดิบ</button>
+                                    </div>
+                                    <div className="space-y-2 mb-3">
+                                        {recipe.map((item, index) => (
+                                            <div key={index} className="flex space-x-2 items-center">
+                                                <select required value={item.materialId} onChange={e => handleUpdateRecipe(index, 'materialId', e.target.value)} className="flex-1 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none">
+                                                    <option value="">เลือกวัตถุดิบ</option>
+                                                    {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                                                </select>
+                                                <input required type="number" step="0.01" placeholder="จำนวน" value={item.amount} onChange={e => handleUpdateRecipe(index, 'amount', e.target.value)} className="w-20 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none text-center" />
+                                                <button type="button" onClick={() => handleRemoveRecipeItem(index)} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* แตกราคาย่อยและคำนวณต้นทุนรวมให้ดูแบบ Real-time เฉพาะหน้าแก้ไขนี้ */}
+                                <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600 border border-gray-200 mt-2">
+                                    <span className="font-bold block mb-2 text-gray-700"><i className="fas fa-calculator mr-1"></i> แตกต้นทุนย่อยตามสูตรปัจจุบัน:</span>
+                                    <div className="space-y-1.5">
+                                        {recipe.map((r, idx) => {
+                                            const mat = materials.find(m => m.id === r.materialId);
+                                            if (!mat || !r.amount) return null;
+                                            const itemCost = mat.cost * parseFloat(r.amount);
+                                            return (
+                                                <div key={idx} className="flex justify-between items-center border-b border-dashed border-gray-200 pb-1 last:border-0 last:pb-0">
+                                                    <span>{mat.name} <span className="text-gray-400">({r.amount} {mat.unit})</span></span>
+                                                    <span className="font-semibold text-red-500">฿{itemCost.toFixed(2)}</span>
+                                                </div>
+                                            );
+                                        })}
+                                        <div className="pt-2 border-t border-gray-300 flex justify-between font-bold text-sm text-gray-800">
+                                            <span>รวมต้นทุนอาหารทั้งหมด:</span>
+                                            <span className="text-red-600">฿{recipe.reduce((sum, r) => {
+                                                const mat = materials.find(m => m.id === r.materialId);
+                                                return sum + ((mat && r.amount) ? mat.cost * parseFloat(r.amount) : 0);
+                                            }, 0).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex space-x-3 mt-4">
+                                    <button type="button" onClick={resetForm} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold">ยกเลิก</button>
+                                    <button type="submit" className={`flex-1 py-3 rounded-xl font-bold text-white shadow-md bg-gray-900`}>
+                                        {editingMenuId ? 'บันทึกการแก้ไข' : 'บันทึกเมนู'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Delete Confirm Modal */}
+                    {deleteConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-trash-can"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการลบเมนู</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการลบเมนูนี้ออกจากระบบใช่หรือไม่?</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setDeleteConfirm({ isOpen: false, menuId: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                    <button onClick={executeDelete} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ลบเมนู</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 5. History View
+        function HistoryView({ sales, setSales, materials, setMaterials, showNotify }) {
+            const [voidConfirm, setVoidConfirm] = useState({ isOpen: false, sale: null });
+
+            const sortedSales = useMemo(() => {
+                return [...sales].sort((a, b) => new Date(b.date) - new Date(a.date));
+            }, [sales]);
+
+            const handleVoidClick = (sale) => {
+                setVoidConfirm({ isOpen: true, sale: sale });
+            };
+
+            const executeVoid = () => {
+                const saleToVoid = voidConfirm.sale;
+                if (!saleToVoid) return;
+
+                let materialsToReturn = {};
+                saleToVoid.items.forEach(item => {
+                    item.recipe.forEach(r => {
+                        if (!materialsToReturn[r.materialId]) materialsToReturn[r.materialId] = 0;
+                        materialsToReturn[r.materialId] += (r.amount * item.qty);
+                    });
+                });
+
+                const newMaterials = materials.map(m => {
+                    if (materialsToReturn[m.id]) {
+                        return { ...m, stock: m.stock + materialsToReturn[m.id] };
+                    }
+                    return m;
+                });
+
+                setMaterials(newMaterials);
+                setSales(sales.filter(s => s.id !== saleToVoid.id));
+                setVoidConfirm({ isOpen: false, sale: null });
+                showNotify('ยกเลิกบิลสำเร็จ: ยอดเงินและวัตถุดิบถูกคืนเข้าระบบแล้ว');
+            };
+
+            const formatTime = (dateString) => {
+                const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+                return new Date(dateString).toLocaleTimeString('th-TH', options);
+            };
+            
+            const formatDate = (dateString) => {
+                const options = { day: '2-digit', month: 'short', year: 'numeric' };
+                return new Date(dateString).toLocaleDateString('th-TH', options);
+            };
+
+            return (
+                <div>
+                    <h2 className="text-lg font-bold text-gray-700 mb-4 flex items-center">
+                        <i className="fas fa-receipt mr-2 text-red-600"></i> ประวัติการขายทั้งหมด
+                    </h2>
+                    
+                    {sortedSales.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl shadow-sm text-center border border-gray-100">
+                            <i className="fas fa-folder-open text-4xl text-gray-300 mb-3 block"></i>
+                            <p className="text-gray-500">ยังไม่มีประวัติการขาย</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {sortedSales.map((sale) => (
+                                <div key={sale.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
+                                    <button 
+                                        onClick={() => handleVoidClick(sale)}
+                                        className="absolute top-4 right-4 text-xs bg-red-50 text-red-500 border border-red-100 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors"
+                                    >
+                                        <i className="fas fa-ban mr-1"></i>ยกเลิกบิล
+                                    </button>
+
+                                    <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2 pr-24">
+                                        <div>
+                                            <span className="font-bold text-gray-800 text-sm flex items-center space-x-2">
+                                                <span>{formatDate(sale.date)}</span>
+                                                {sale.location && (
+                                                    <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                                        {sale.location}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span className="text-xs text-gray-500 mt-1 block"><i className="far fa-clock mr-1"></i>{formatTime(sale.date)}</span>
+                                            <span className="text-xs text-gray-400 block mt-1">ID: {sale.id.slice(-6)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="text-sm">
+                                        <ul className="space-y-1">
+                                            {sale.items.map((item, idx) => (
+                                                <li key={idx} className="flex justify-between text-gray-600 border-b border-dashed border-gray-100 pb-1 last:border-0">
+                                                    <span>{item.qty}x {item.name}</span>
+                                                    <span>฿{(item.price * item.qty).toFixed(2)}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+
+                                    <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
+                                        <span className="font-bold text-gray-600 text-sm">ยอดรวมทั้งสิ้น</span>
+                                        <span className="font-bold text-green-600 text-lg">฿{sale.totalRevenue.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Void Confirmation Modal */}
+                    {voidConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-triangle-exclamation"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการยกเลิกบิล</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการยกเลิกบิลนี้ใช่หรือไม่?<br/>ระบบจะลบยอดขายและคืนวัตถุดิบเข้าสต็อค</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setVoidConfirm({ isOpen: false, sale: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ปิด</button>
+                                    <button onClick={executeVoid} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันยกเลิก</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 6. Expense View
+        function ExpenseView({ expenses, setExpenses, showNotify }) {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newExp, setNewExp] = useState({ topic: '', amount: '', category: 'จิปาถะ' });
+            const [delConfirm, setDelConfirm] = useState({ isOpen: false, id: null });
+
+            const sortedExpenses = useMemo(() => {
+                return [...(expenses || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
+            }, [expenses]);
+
+            const handleAddExpense = (e) => {
+                e.preventDefault();
+                if (!newExp.topic || !newExp.amount) return;
+                
+                const newItem = {
+                    id: 'exp' + Date.now(),
+                    date: new Date().toISOString(),
+                    topic: newExp.topic,
+                    amount: parseFloat(newExp.amount),
+                    category: newExp.category || 'จิปาถะ'
+                };
+                setExpenses([...(expenses || []), newItem]);
+                setNewExp({ topic: '', amount: '', category: 'จิปาถะ' });
+                setShowAddModal(false);
+                showNotify('บันทึกรายจ่ายเรียบร้อย');
+            };
+
+            const executeDelete = () => {
+                setExpenses(expenses.filter(e => e.id !== delConfirm.id));
+                setDelConfirm({ isOpen: false, id: null });
+                showNotify('ลบรายจ่ายเรียบร้อย');
+            };
+
+            const formatDate = (dateString) => {
+                const options = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+                return new Date(dateString).toLocaleString('th-TH', options);
+            };
+
+            const getCategoryStyle = (cat) => {
+                switch(cat) {
+                    case 'ค่าเช่า': return 'bg-purple-100 text-purple-700';
+                    case 'เงินเดือน': return 'bg-blue-100 text-blue-700';
+                    case 'การตลาด': return 'bg-pink-100 text-pink-700';
+                    case 'เดินทาง/น้ำมัน': return 'bg-teal-100 text-teal-700';
+                    case 'สาธารณูปโภค': return 'bg-yellow-100 text-yellow-700';
+                    default: return 'bg-gray-100 text-gray-700';
+                }
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-lg font-bold text-gray-700">รายจ่าย (Expenses)</h2>
+                        <button onClick={() => setShowAddModal(true)} className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-sm font-bold flex items-center shadow-sm">
+                            <i className="fas fa-plus mr-1"></i> เพิ่มรายจ่าย
+                        </button>
+                    </div>
+
+                    {sortedExpenses.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl shadow-sm text-center border border-gray-100">
+                            <i className="fas fa-file-invoice-dollar text-4xl text-gray-300 mb-3 block"></i>
+                            <p className="text-gray-500">ยังไม่มีการบันทึกรายจ่าย</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {sortedExpenses.map(exp => (
+                                <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                                    <div>
+                                        <div className="flex items-center space-x-2">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getCategoryStyle(exp.category)}`}>
+                                                {exp.category || 'จิปาถะ'}
+                                            </span>
+                                            <h3 className="font-bold text-gray-800">{exp.topic}</h3>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1"><i className="far fa-clock mr-1"></i>{formatDate(exp.date)}</p>
+                                    </div>
+                                    <div className="text-right flex flex-col items-end">
+                                        <p className="font-bold text-orange-500 text-lg">-฿{exp.amount.toFixed(2)}</p>
+                                        <button onClick={() => setDelConfirm({ isOpen: true, id: exp.id })} className="text-[10px] text-red-400 hover:text-red-600 mt-1 px-2 py-1 bg-red-50 rounded transition-colors">
+                                            <i className="fas fa-trash"></i> ลบ
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Add Expense Modal */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
+                                <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center">
+                                    <i className="fas fa-file-invoice-dollar text-orange-500 mr-2"></i>
+                                    บันทึกรายจ่าย
+                                </h3>
+                                <form onSubmit={handleAddExpense} className="space-y-4">
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-2 block font-medium">หมวดหมู่รายจ่าย</label>
+                                        <select value={newExp.category} onChange={e => setNewExp({...newExp, category: e.target.value})} className="w-full border-2 border-gray-200 rounded-lg p-3 bg-gray-50 focus:border-red-500 focus:outline-none transition-colors">
+                                            <option value="จิปาถะ">จิปาถะ (ของใช้สิ้นเปลือง)</option>
+                                            <option value="ค่าเช่า">ค่าเช่าร้าน / ที่พัก</option>
+                                            <option value="เงินเดือน">เงินเดือน / ค่าจ้างพนักงาน</option>
+                                            <option value="สาธารณูปโภค">สาธารณูปโภค (น้ำ, ไฟ, แก๊ส)</option>
+                                            <option value="การตลาด">การตลาด / ยิงแอด</option>
+                                            <option value="เดินทาง/น้ำมัน">เดินทาง / ค่าน้ำมัน</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-2 block font-medium">หัวข้อรายจ่าย</label>
+                                        <input required type="text" value={newExp.topic} onChange={e => setNewExp({...newExp, topic: e.target.value})} className="w-full border-2 border-gray-200 rounded-lg p-3 bg-gray-50 focus:border-red-500 focus:outline-none transition-colors" placeholder="เช่น บิลค่าไฟเดือนนี้..." />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm text-gray-600 mb-2 block font-medium">จำนวนเงิน (บาท)</label>
+                                        <input required type="number" step="0.01" value={newExp.amount} onChange={e => setNewExp({...newExp, amount: e.target.value})} className="w-full border-2 border-gray-200 rounded-lg p-3 bg-gray-50 focus:border-red-500 focus:outline-none transition-colors" placeholder="0.00" />
+                                    </div>
+                                    <div className="flex space-x-3 mt-6">
+                                        <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                        <button type="submit" className="flex-1 py-3 rounded-lg bg-gray-900 text-white font-bold hover:bg-black shadow-md transition-colors">บันทึก</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Confirm Modal */}
+                    {delConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-trash-can"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการลบ</h3>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการลบประวัติรายจ่ายนี้ใช่หรือไม่?</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setDelConfirm({ isOpen: false, id: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                    <button onClick={executeDelete} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ลบรายจ่าย</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // --- Render App ---
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
