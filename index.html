@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -39,8 +38,74 @@
         import { createRoot } from 'react-dom/client';
 
         const API_URL = "https://script.google.com/macros/s/AKfycbx2n5RUmzApTA-rr4NTb2XW5I8awmWP7vDn1iyZGnxfkCGThgtp8Iy7nkKYqmB2ZrgHLw/exec"; 
+
+        // ฟังก์ชันพิเศษสำหรับแกะรูปแบบวันที่จาก Google Sheets
+        function parseSheetDate(dateInput) {
+            if (!dateInput) return new Date();
+            if (dateInput instanceof Date) return dateInput;
+            
+            let dateStr = String(dateInput).trim();
+            
+            let parsed = new Date(dateStr);
+            if (!isNaN(parsed.getTime())) return parsed;
+            
+            const cleanStr = dateStr.replace(/-/g, '/'); 
+            
+            const matchDMY = cleanStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+            if (matchDMY) {
+                const day = parseInt(matchDMY[1], 10);
+                const month = parseInt(matchDMY[2], 10) - 1;
+                let year = parseInt(matchDMY[3], 10);
+                const hour = matchDMY[4] ? parseInt(matchDMY[4], 10) : 0;
+                const min = matchDMY[5] ? parseInt(matchDMY[5], 10) : 0;
+                const sec = matchDMY[6] ? parseInt(matchDMY[6], 10) : 0;
+                
+                if (year > 2400) year -= 543;
+                return new Date(year, month, day, hour, min, sec);
+            }
+            
+            const matchYMD = cleanStr.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+            if (matchYMD) {
+                let year = parseInt(matchYMD[1], 10);
+                const month = parseInt(matchYMD[2], 10) - 1;
+                const day = parseInt(matchYMD[3], 10);
+                const hour = matchYMD[4] ? parseInt(matchYMD[4], 10) : 0;
+                const min = matchYMD[5] ? parseInt(matchYMD[5], 10) : 0;
+                const ss = matchYMD[6] ? parseInt(matchYMD[6], 10) : 0;
+                
+                if (year > 2400) year -= 543;
+                return new Date(year, month, day, hour, min, ss);
+            }
+            
+            return new Date();
+        }
         
-        // --- Custom Hook สำหรับ Cloud Sync ---
+        // Custom Hook สำหรับ LocalStorage
+        function useLocalStorage(key, initialValue) {
+            const [storedValue, setStoredValue] = useState(() => {
+                try {
+                    const item = window.localStorage.getItem(key);
+                    return item ? JSON.parse(item) : initialValue;
+                } catch (error) {
+                    console.error("Error reading localStorage", error);
+                    return initialValue;
+                }
+            });
+
+            const setValue = (value) => {
+                try {
+                    const valueToStore = value instanceof Function ? value(storedValue) : value;
+                    setStoredValue(valueToStore);
+                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                } catch (error) {
+                    console.error("Error setting localStorage", error);
+                }
+            };
+
+            return [storedValue, setValue];
+        }
+
+        // Custom Hook สำหรับ Cloud State (ผสม LocalStorage)
         function useCloudState(key, initialValue, apiUrl) {
             const [data, setData] = useState(initialValue);
             const [isLoading, setIsLoading] = useState(true);
@@ -89,14 +154,13 @@
             return [data, setValueAndSync, isLoading];
         }
 
-        // --- Initial Mock Data ---
         const initialMaterials = [
-            { id: 'm1', name: 'แป้งเคบับ', unit: 'แผ่น', cost: 5, stock: 500, category: 'แป้ง', isSubBOM: false, lossPercent: 0 },
-            { id: 'm2', name: 'เนื้อไก่หมัก', unit: 'กรัม', cost: 0.15, stock: 10000, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 5 },
-            { id: 'm3', name: 'ไก่กรอบ', unit: 'ชิ้น', cost: 10, stock: 200, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 0 },
-            { id: 'm4', name: 'ชีสแผ่น', unit: 'แผ่น', cost: 4, stock: 300, category: 'ชีส', isSubBOM: false, lossPercent: 0 },
-            { id: 'm5', name: 'ผักรวม', unit: 'เสิร์ฟ', cost: 3, stock: 500, category: 'ผัก', isSubBOM: false, lossPercent: 10 },
-            { id: 'm6', name: 'ซอสเคบับ', unit: 'มล.', cost: 0.05, stock: 5000, category: 'ซอส', isSubBOM: false, lossPercent: 2 }
+            { id: 'm1', name: 'แป้งเคบับ', unit: 'แผ่น', cost: 5, stock: 500, category: 'แป้ง', isSubBOM: false, lossPercent: 0, defaultPackSize: 1 },
+            { id: 'm2', name: 'เนื้อไก่หมัก', unit: 'กรัม', cost: 0.15, stock: 10000, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 5, defaultPackSize: 1000 },
+            { id: 'm3', name: 'ไก่กรอบ', unit: 'ชิ้น', cost: 10, stock: 200, category: 'เนื้อสัตว์', isSubBOM: false, lossPercent: 0, defaultPackSize: 1 },
+            { id: 'm4', name: 'ชีสแผ่น', unit: 'แผ่น', cost: 4, stock: 300, category: 'ชีส', isSubBOM: false, lossPercent: 0, defaultPackSize: 50 },
+            { id: 'm5', name: 'ผักรวม', unit: 'เสิร์ฟ', cost: 3, stock: 500, category: 'ผัก', isSubBOM: false, lossPercent: 10, defaultPackSize: 1 },
+            { id: 'm6', name: 'ซอสเคบับ', unit: 'มล.', cost: 0.05, stock: 5000, category: 'ซอส', isSubBOM: false, lossPercent: 2, defaultPackSize: 870 }
         ];
 
         const initialMenus = [
@@ -107,26 +171,11 @@
             { id: 'menu5', name: 'เคบับมินิไก่กรอบ', price: 45, image: '🌮🍗', recipe: [{ materialId: 'm1', amount: 0.5 }, { materialId: 'm3', amount: 0.5 }, { materialId: 'm5', amount: 0.5 }, { materialId: 'm6', amount: 15 }] }
         ];
 
-        // --- Custom Local Storage Hook ---
-        function useLocalStorage(key, initialValue) {
-            const [storedValue, setStoredValue] = useState(() => {
-                try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; }
-                catch (error) { return initialValue; }
-            });
-            const setValue = (value) => {
-                try {
-                    const valueToStore = value instanceof Function ? value(storedValue) : value;
-                    setStoredValue(valueToStore);
-                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
-                } catch (error) {}
-            };
-            return [storedValue, setValue];
-        }
-
-        // --- Main App Component ---
         function App() {
             const [activeTab, setActiveTab] = useState('pos'); 
             const [notification, setNotification] = useState(null);
+
+            const [cart, setCart] = useLocalStorage('kebab_cart', []);
 
             const [materials, setMaterials, l1] = useCloudState('kebab_materials', initialMaterials, API_URL);
             const [menus, setMenus, l2] = useCloudState('kebab_menus', initialMenus, API_URL);
@@ -172,26 +221,25 @@
                             </div>
                         )}
                         {activeTab === 'dashboard' && <DashboardView materials={materials} sales={sales} menus={menus} expenses={expenses} />}
-                        {activeTab === 'pos' && <POSView menus={menus} materials={materials} sales={sales} setSales={setSales} setMaterials={setMaterials} showNotify={showNotify} getMenuCost={getMenuCost} />}
-                        {activeTab === 'inventory' && <InventoryView materials={materials} setMaterials={setMaterials} showNotify={showNotify} stockLogs={stockLogs} setStockLogs={setStockLogs} />}
-                        {activeTab === 'menu' && <MenuView menus={menus} setMenus={setMenus} materials={materials} getMenuCost={getMenuCost} showNotify={showNotify} />}
+                        {activeTab === 'pos' && <POSView menus={menus} materials={materials} sales={sales} setSales={setSales} setMaterials={setMaterials} showNotify={showNotify} getMenuCost={getMenuCost} cart={cart} setCart={setCart} useLocalStorage={useLocalStorage} />}
                         {activeTab === 'history' && <HistoryView sales={sales} setSales={setSales} materials={materials} setMaterials={setMaterials} showNotify={showNotify} />}
                         {activeTab === 'expenses' && <ExpenseView expenses={expenses} setExpenses={setExpenses} showNotify={showNotify} />}
+                        {activeTab === 'inventory' && <InventoryView materials={materials} setMaterials={setMaterials} showNotify={showNotify} stockLogs={stockLogs} setStockLogs={setStockLogs} />}
+                        {activeTab === 'menu' && <MenuView menus={menus} setMenus={setMenus} materials={materials} getMenuCost={getMenuCost} showNotify={showNotify} />}
                     </main>
 
                     <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full grid grid-cols-6 p-2 pb-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-20">
                         <NavButton icon="fa-chart-pie" label="แดชบอร์ด" isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
                         <NavButton icon="fa-cash-register" label="ขาย" isActive={activeTab === 'pos'} onClick={() => setActiveTab('pos')} />
-                        <NavButton icon="fa-boxes-stacked" label="สต็อค" isActive={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
-                        <NavButton icon="fa-book-open" label="เมนู" isActive={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
                         <NavButton icon="fa-receipt" label="ประวัติ" isActive={activeTab === 'history'} onClick={() => setActiveTab('history')} />
                         <NavButton icon="fa-file-invoice-dollar" label="รายจ่าย" isActive={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} />
+                        <NavButton icon="fa-boxes-stacked" label="สต็อค" isActive={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+                        <NavButton icon="fa-book-open" label="เมนู" isActive={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
                     </nav>
                 </div>
             );
         }
 
-        // --- NavButton ---
         function NavButton({ icon, label, isActive, onClick }) {
             return (
                 <button onClick={onClick} className={`flex flex-col items-center justify-center p-2 transition-colors ${isActive ? 'text-red-600' : 'text-gray-400 hover:text-red-500'}`}>
@@ -202,17 +250,22 @@
         }
 
         // 1. Dashboard View
-        function DashboardView({ materials, sales, expenses }) {
+        function DashboardView({ materials, sales, menus, expenses }) {
             const [filterType, setFilterType] = useState('today');
             const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
             const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            
+            // เพิ่ม Ref สำหรับตัวกรอบของกราฟ
+            const chartScrollRef = React.useRef(null);
 
             const filteredSales = useMemo(() => {
                 return sales.filter(s => {
-                    const saleDate = new Date(s.date);
+                    const saleDate = parseSheetDate(s.date);
                     const now = new Date();
                     if (filterType === 'today') {
-                        return saleDate.toLocaleDateString('th-TH') === now.toLocaleDateString('th-TH');
+                        return saleDate.getDate() === now.getDate() && 
+                               saleDate.getMonth() === now.getMonth() && 
+                               saleDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'month') {
                         return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'year') {
@@ -231,10 +284,12 @@
             const filteredExpenses = useMemo(() => {
                 const expList = expenses || [];
                 return expList.filter(e => {
-                    const expDate = new Date(e.date);
+                    const expDate = parseSheetDate(e.date);
                     const now = new Date();
                     if (filterType === 'today') {
-                        return expDate.toLocaleDateString('th-TH') === now.toLocaleDateString('th-TH');
+                        return expDate.getDate() === now.getDate() && 
+                               expDate.getMonth() === now.getMonth() && 
+                               expDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'month') {
                         return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'year') {
@@ -249,6 +304,12 @@
                     return true;
                 });
             }, [expenses, filterType, startDate, endDate]);
+
+            const totalPieces = useMemo(() => {
+                return filteredSales.reduce((sum, s) => {
+                    return sum + s.items.reduce((itemSum, item) => itemSum + item.qty, 0);
+                }, 0);
+            }, [filteredSales]);
 
             const totalRevenue = filteredSales.reduce((sum, s) => sum + s.totalRevenue, 0);
             const totalCost = filteredSales.reduce((sum, s) => sum + s.totalCost, 0);
@@ -276,6 +337,74 @@
                     }))
                     .sort((a, b) => b.count - a.count);
             }, [filteredSales]);
+
+            // กราฟช่วงเวลาขายดี (แบ่งช่วงเวลาทุกๆ 30 นาที และบวกสะสมตามช่วงวันที่กรอง)
+            const hourlySales = useMemo(() => {
+                const slots = {};
+                // ตั้งค่าช่วงเวลาเปิดร้าน 08:00 - 21:30
+                for (let i = 8; i <= 21; i++) {
+                    const hh = String(i).padStart(2, '0');
+                    slots[`${hh}:00`] = 0;
+                    slots[`${hh}:30`] = 0;
+                }
+                
+                filteredSales.forEach(sale => {
+                    const date = parseSheetDate(sale.date);
+                    const hours = date.getHours();
+                    const minutes = date.getMinutes();
+                    
+                    // ปัดเศษนาทีให้อยู่ใน Slot :00 หรือ :30
+                    const slotMin = minutes >= 30 ? '30' : '00';
+                    const slotStr = `${String(hours).padStart(2, '0')}:${slotMin}`;
+                    
+                    if (slots[slotStr] !== undefined) {
+                        slots[slotStr] += sale.totalRevenue;
+                    } else {
+                        slots[slotStr] = sale.totalRevenue; // กรณีขายนอกเวลาปกติ
+                    }
+                });
+                
+                // เรียงลำดับคีย์เวลาเผื่อกรณีมีนอกเวลาแทรกเข้ามา
+                const sortedKeys = Object.keys(slots).sort();
+                return sortedKeys.map(slot => ({ label: slot, value: slots[slot] }));
+            }, [filteredSales]);
+
+            const maxHourlyRevenue = useMemo(() => {
+                const values = hourlySales.map(h => h.value);
+                return Math.max(...values, 100); 
+            }, [hourlySales]);
+
+            // เลื่อนกราฟไปตรงกลางของแท่งที่มียอดขายสูงสุดอัตโนมัติ
+            React.useEffect(() => {
+                if (chartScrollRef.current && hourlySales.length > 0) {
+                    let maxIdx = 0;
+                    let maxVal = -1;
+                    
+                    // หา index ของเวลาที่ยอดขายเยอะที่สุด
+                    hourlySales.forEach((h, i) => {
+                        if (h.value > maxVal) {
+                            maxVal = h.value;
+                            maxIdx = i;
+                        }
+                    });
+
+                    if (maxVal > 0) {
+                        const container = chartScrollRef.current;
+                        // หน่วงเวลาเล็กน้อยเพื่อให้เบราว์เซอร์จัด Layout เสร็จก่อนสั่งเลื่อน
+                        setTimeout(() => {
+                            const child = container.children[maxIdx];
+                            if (child) {
+                                // คำนวณระยะให้แท่งที่สูงที่สุดมาอยู่ตรงกลางจอ
+                                const scrollPos = child.offsetLeft - (container.clientWidth / 2) + (child.clientWidth / 2);
+                                container.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
+                            }
+                        }, 150);
+                    } else {
+                        // ถ้าไม่มียอดขายเลย ให้เลื่อนกลับไปซ้ายสุด
+                        chartScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+                    }
+                }
+            }, [hourlySales, filterType]);
 
             const lowStockItems = materials.filter(m => m.stock < 100);
 
@@ -322,23 +451,51 @@
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-gray-900 col-span-2 md:col-span-1">
-                            <p className="text-sm text-gray-500">ยอดขายรวม</p>
+                            <p className="text-sm text-gray-500 font-medium">ยอดขายรวม</p>
                             <p className="text-2xl font-bold text-gray-900">฿{totalRevenue.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
                         </div>
                         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 col-span-2 md:col-span-1">
-                            <p className="text-sm text-gray-500">กำไรสุทธิ <span className="text-[10px] font-normal text-gray-400">(หักรายจ่ายแล้ว)</span></p>
+                            <p className="text-sm text-gray-500 font-medium">กำไรสุทธิ <span className="text-[10px] font-normal text-gray-400">(หักรายจ่ายแล้ว)</span></p>
                             <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                                 ฿{totalProfit.toLocaleString('th-TH', {minimumFractionDigits: 2})}
                             </p>
                         </div>
                         <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500">
-                            <p className="text-xs text-gray-500">ต้นทุนวัตถุดิบ (ตามสูตร)</p>
-                            <p className="text-lg font-bold text-red-500">-฿{totalCost.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
+                            <p className="text-xs text-gray-500 font-medium">จำนวนชิ้นที่ขายได้</p>
+                            <p className="text-lg font-bold text-red-600">{totalPieces.toLocaleString('th-TH')} <span className="text-xs font-normal text-gray-400">ชิ้น</span></p>
                         </div>
-                         <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-orange-500">
-                            <p className="text-xs text-gray-500">รายจ่ายที่บันทึก</p>
+                        <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-orange-500">
+                            <p className="text-xs text-gray-500 font-medium">รายจ่ายที่บันทึก</p>
                             <p className="text-lg font-bold text-orange-500">-฿{totalExpenseAmount.toLocaleString('th-TH', {minimumFractionDigits: 2})}</p>
                         </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center">
+                            <i className="fas fa-clock text-red-600 mr-2"></i> ช่วงเวลาขายดี (ยอดขายตามช่วงเวลา)
+                        </h3>
+                        <div ref={chartScrollRef} className="h-56 flex space-x-1 pt-8 overflow-x-auto hide-scroll border-b border-gray-200 pb-2">
+                            {hourlySales.map(hourData => {
+                                const pct = maxHourlyRevenue > 0 ? (hourData.value / maxHourlyRevenue) * 100 : 0;
+                                return (
+                                    <div key={hourData.label} className="flex-1 flex flex-col justify-end items-center min-w-[32px] group h-full">
+                                        {/* กล่องบรรจุแท่งกราฟ บังคับความสูงเต็ม (h-full) ให้ height เป็น % ทำงานได้ */}
+                                        <div className="w-full flex-1 flex flex-col justify-end relative mt-2">
+                                            {hourData.value > 0 && (
+                                                <span className="absolute -top-5 left-1/2 transform -translate-x-1/2 text-[9px] text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 bg-white border border-red-100 px-1 rounded shadow-sm">
+                                                    ฿{hourData.value.toFixed(0)}
+                                                </span>
+                                            )}
+                                            <div className="w-full bg-gray-50 rounded-t transition-colors relative" style={{ height: `${Math.max(pct, 1)}%` }}>
+                                                <div className={`absolute inset-0 rounded-t transition-colors ${hourData.value > 0 ? 'bg-red-500 group-hover:bg-red-400' : 'bg-transparent'}`}></div>
+                                            </div>
+                                        </div>
+                                        <span className="text-[8px] text-gray-500 mt-1 font-semibold whitespace-nowrap">{hourData.label}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-2 text-center">* นำนิ้วแตะหรือชี้ที่แท่งกราฟเพื่อดูมูลค่ารวม</p>
                     </div>
 
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -386,60 +543,79 @@
         }
 
         // 2. POS View
-        function POSView({ menus, materials, sales, setSales, setMaterials, showNotify, getMenuCost }) {
-            const [cart, setCart] = useState([]);
+        function POSView({ menus, materials, sales, setSales, setMaterials, showNotify, getMenuCost, cart, setCart, useLocalStorage }) {
             const [customLocation, setCustomLocation] = useLocalStorage('kebab_custom_location', 'หน้าร้าน');
             const [isLineman, setIsLineman] = useState(false);
 
-            const [optionModal, setOptionModal] = useState({ isOpen: false, menu: null });
-            const [hasDoubleCheese, setHasDoubleCheese] = useState(false);
-
-            const handleMenuClick = (menu) => {
-                setHasDoubleCheese(false);
-                setOptionModal({ isOpen: true, menu: menu });
-            };
-
-            const confirmOptions = () => {
-                addToCart(optionModal.menu, hasDoubleCheese);
-                setOptionModal({ isOpen: false, menu: null });
-            };
-
-            const addToCart = (menu, doubleCheese) => {
-                const cartItemId = menu.id + (doubleCheese ? '_dc' : '');
-
+            const addToCart = (menu) => {
                 setCart(prev => {
-                    const existing = prev.find(item => item.cartItemId === cartItemId);
-                    if (existing) {
-                        return prev.map(item => item.cartItemId === cartItemId ? { ...item, qty: item.qty + 1 } : item);
+                    const cartItemId = `${menu.id}_c0`; 
+                    const existingIndex = prev.findIndex(item => item.cartItemId === cartItemId);
+                    
+                    if (existingIndex >= 0) {
+                        const newCart = [...prev];
+                        const itemToMove = newCart.splice(existingIndex, 1)[0];
+                        itemToMove.qty += 1;
+                        newCart.push(itemToMove);
+                        return newCart;
                     }
-
-                    let finalPrice = menu.price;
-                    let finalName = menu.name;
-                    let finalRecipe = [...menu.recipe];
-
-                    if (doubleCheese) {
-                        finalPrice += 20;
-                        finalName += ' +ดับเบิ้ลชีส';
-                        
-                        const cheeseMaterial = materials.find(m => m.name.includes('ชีส'));
-                        if (cheeseMaterial) {
-                            const existingCheeseIndex = finalRecipe.findIndex(r => r.materialId === cheeseMaterial.id);
-                            if (existingCheeseIndex >= 0) {
-                                finalRecipe[existingCheeseIndex] = { ...finalRecipe[existingCheeseIndex], amount: finalRecipe[existingCheeseIndex].amount + 2 };
-                            } else {
-                                finalRecipe.push({ materialId: cheeseMaterial.id, amount: 2 });
-                            }
-                        }
-                    }
-
+                    
                     return [...prev, { 
                         ...menu, 
-                        cartItemId: cartItemId, 
-                        name: finalName, 
-                        price: finalPrice,
-                        recipe: finalRecipe, 
+                        originalName: menu.name,
+                        originalPrice: menu.price,
+                        originalRecipe: [...menu.recipe],
+                        cartItemId: cartItemId,
+                        cheeseCount: 0,
                         qty: 1 
                     }];
+                });
+            };
+
+            const handleAddExtraCheese = () => {
+                if (cart.length === 0) {
+                    showNotify('กรุณาเลือกเมนูก่อนกดเพิ่มชีส', 'error');
+                    return;
+                }
+
+                const cheeseMaterial = materials.find(m => m.name.includes('ชีส') || m.category === 'ชีส');
+                if (!cheeseMaterial) {
+                    showNotify('ไม่พบวัตถุดิบชีสในสต็อค', 'error');
+                    return;
+                }
+
+                setCart(prevCart => {
+                    const newCart = [...prevCart];
+                    const lastIndex = newCart.length - 1;
+                    const lastItem = { ...newCart[lastIndex] }; 
+
+                    const newCheeseCount = (lastItem.cheeseCount || 0) + 1;
+                    
+                    lastItem.cheeseCount = newCheeseCount;
+                    lastItem.price = lastItem.originalPrice + (20 * newCheeseCount);
+                    lastItem.name = `${lastItem.originalName} (+ชีส ${newCheeseCount})`;
+                    
+                    const newRecipe = [...lastItem.originalRecipe];
+                    const existingCheeseIndex = newRecipe.findIndex(r => r.materialId === cheeseMaterial.id);
+                    if (existingCheeseIndex >= 0) {
+                        newRecipe[existingCheeseIndex] = { ...newRecipe[existingCheeseIndex], amount: newRecipe[existingCheeseIndex].amount + newCheeseCount };
+                    } else {
+                        newRecipe.push({ materialId: cheeseMaterial.id, amount: newCheeseCount });
+                    }
+                    lastItem.recipe = newRecipe;
+                    lastItem.cartItemId = `${lastItem.id}_c${newCheeseCount}`;
+
+                    newCart.pop(); 
+                    const mergeIndex = newCart.findIndex(item => item.cartItemId === lastItem.cartItemId);
+                    if (mergeIndex >= 0) {
+                        newCart[mergeIndex].qty += lastItem.qty; 
+                        const mergedItem = newCart.splice(mergeIndex, 1)[0];
+                        newCart.push(mergedItem);
+                    } else {
+                        newCart.push(lastItem);
+                    }
+
+                    return newCart;
                 });
             };
 
@@ -466,20 +642,13 @@
                     });
                 });
 
-                let isEnough = true;
-                let errorMsg = '';
+                let hasNegativeWarning = false;
                 Object.keys(requiredMaterials).forEach(matId => {
                     let mat = materials.find(m => m.id === matId);
                     if (!mat || mat.stock < requiredMaterials[matId]) {
-                        isEnough = false;
-                        errorMsg = `สต็อคไม่พอ: ${mat ? mat.name : 'ไม่พบวัตถุดิบ'}`;
+                        hasNegativeWarning = true;
                     }
                 });
-
-                if (!isEnough) {
-                    showNotify(errorMsg, 'error');
-                    return;
-                }
 
                 const newMaterials = materials.map(mat => {
                     if (requiredMaterials[mat.id]) {
@@ -502,26 +671,40 @@
 
                 setMaterials(newMaterials);
                 setSales([...sales, newSale]);
-                setCart([]);
+                setCart([]); 
                 setIsLineman(false); 
-                showNotify('บันทึกการขายและตัดสต็อคเรียบร้อย!');
+                
+                if (hasNegativeWarning) {
+                    showNotify('ขายสำเร็จ! (วัตถุดิบบางรายการติดลบในสต็อค)', 'error');
+                } else {
+                    showNotify('บันทึกการขายและตัดสต็อคเรียบร้อย!');
+                }
             };
 
             return (
                 <div className="flex flex-col h-full relative">
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 overflow-y-auto">
                         {menus.map(menu => (
-                            <button key={menu.id} onClick={() => handleMenuClick(menu)} className="bg-white p-4 rounded-xl shadow-sm active:scale-95 transition-transform flex flex-col items-center border border-gray-100 hover:border-red-500">
+                            <button key={menu.id} onClick={() => addToCart(menu)} className="bg-white p-4 rounded-xl shadow-sm active:scale-95 transition-transform flex flex-col items-center border border-gray-100 hover:border-red-500">
                                 <span className="text-4xl mb-2">{menu.image || '🌯'}</span>
                                 <span className="font-semibold text-gray-800 text-center text-sm">{menu.name}</span>
                                 <span className="text-red-600 font-bold mt-1">฿{menu.price}</span>
                             </button>
                         ))}
+                        
+                        <button onClick={handleAddExtraCheese} className="bg-yellow-50 p-4 rounded-xl shadow-sm active:scale-95 transition-transform flex flex-col items-center border border-yellow-200 hover:border-yellow-400">
+                            <span className="text-4xl mb-2">🧀</span>
+                            <span className="font-semibold text-yellow-800 text-center text-sm">เพิ่มชีส</span>
+                            <span className="text-red-600 font-bold mt-1">+฿20/แผ่น</span>
+                        </button>
                     </div>
 
                     <div className="bg-white rounded-xl shadow-[0_-5px_15px_-3px_rgba(0,0,0,0.1)] p-4 mt-auto">
                         <div className="flex justify-between items-center mb-2 border-b pb-2">
                             <h3 className="font-bold text-gray-800">รายการสั่งซื้อ (Cart)</h3>
+                            {cart.length > 0 && (
+                                <button onClick={() => setCart([])} className="text-xs text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded">ล้างตะกร้า</button>
+                            )}
                         </div>
 
                         <div className="flex space-x-2 mb-3">
@@ -569,31 +752,6 @@
                             ชำระเงิน ฿{totalAmount.toFixed(2)}
                         </button>
                     </div>
-
-                    {/* Options Modal */}
-                    {optionModal.isOpen && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
-                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
-                                <h3 className="text-lg font-bold mb-1 text-gray-800">ออปชั่นเสริม</h3>
-                                <p className="text-sm text-gray-500 mb-5 pb-3 border-b">{optionModal.menu?.name}</p>
-                                
-                                <label className="flex items-center space-x-3 p-4 border-2 border-gray-100 rounded-xl mb-6 cursor-pointer hover:bg-gray-50 transition-colors">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={hasDoubleCheese} 
-                                        onChange={e => setHasDoubleCheese(e.target.checked)} 
-                                        className="w-5 h-5 text-red-600 border-gray-300 rounded focus:ring-red-500" 
-                                    />
-                                    <span className="font-bold text-gray-800">ดับเบิ้ลชีส <span className="text-red-600 ml-1">(+20 บาท)</span></span>
-                                </label>
-
-                                <div className="flex space-x-3">
-                                    <button onClick={() => setOptionModal({ isOpen: false, menu: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
-                                    <button onClick={confirmOptions} className="flex-1 py-3 rounded-lg bg-gray-900 text-white font-bold hover:bg-black shadow-md transition-colors">เพิ่มลงตะกร้า</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
         }
@@ -605,7 +763,8 @@
             
             const [newMat, setNewMat] = useState({ 
                 name: '', unit: '', totalPrice: '', stock: '', packCount: 1, packSize: '', category: 'ซอส',
-                isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0
+                isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0,
+                defaultPackSize: ''
             });
 
             const [filterCat, setFilterCat] = useState('ทั้งหมด'); 
@@ -650,7 +809,6 @@
                 setNewMat(prev => ({ ...prev, recipe: newR }));
             };
 
-            // คำนวณต้นทุน Real-time สำหรับ Sub-BOM
             const getCalculatedSubBOMCost = () => {
                 if (!newMat.isSubBOM || newMat.recipe.length === 0) return 0;
                 let totalCost = 0;
@@ -703,7 +861,7 @@
                                 id: Date.now().toString(), date: new Date().toISOString(),
                                 materialId: m.id, materialName: m.name, type: 'ของเสีย', amountDiff: -parsedAmount, unit: m.unit, lostCost: lostCost
                             });
-                            return { ...m, stock: Math.max(0, m.stock - parsedAmount) };
+                            return { ...m, stock: m.stock - parsedAmount }; 
                         } else if (type === 'check') {
                             const diff = parsedAmount - m.stock;
                             if (diff !== 0) {
@@ -715,13 +873,12 @@
                                     amountDiff: diff, unit: m.unit, lostCost: isLost ? lostCost : -lostCost
                                 });
                             }
-                            return { ...m, stock: Math.max(0, parsedAmount) };
+                            return { ...m, stock: parsedAmount }; 
                         } else {
                             let newAvgCost = m.cost;
                             let addedTotalCost = 0;
                             
                             if (newCostPerUnit !== null && !isNaN(newCostPerUnit)) {
-                                // หากรับเข้าแล้วมี % Loss ให้ปรับต้นทุนสะท้อนตามจริง
                                 const lossFactor = m.lossPercent > 0 ? (1 - (m.lossPercent / 100)) : 1;
                                 const effectiveCostPerUnit = newCostPerUnit / lossFactor;
                                 
@@ -825,7 +982,8 @@
             const openAddModal = () => {
                 setNewMat({ 
                     name: '', unit: '', totalPrice: '', stock: '', packCount: 1, packSize: '', category: 'ซอส',
-                    isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0
+                    isSubBOM: false, recipe: [{ materialId: '', amount: '' }], yieldAmount: 1, lossPercent: 0,
+                    defaultPackSize: ''
                 });
                 setEditingMatId(null);
                 setShowAddModal(true);
@@ -838,12 +996,13 @@
                     totalPrice: (mat.cost * mat.stock).toFixed(2), 
                     stock: mat.stock,
                     packCount: 1,
-                    packSize: mat.stock,
+                    packSize: mat.defaultPackSize || mat.stock,
                     category: mat.category || 'จิปาถะ',
                     isSubBOM: mat.isSubBOM || false,
                     recipe: mat.recipe?.length > 0 ? mat.recipe.map(r => ({...r})) : [{ materialId: '', amount: '' }],
                     yieldAmount: mat.yieldAmount || 1,
-                    lossPercent: mat.lossPercent || 0
+                    lossPercent: mat.lossPercent || 0,
+                    defaultPackSize: mat.defaultPackSize || ''
                 });
                 setEditingMatId(mat.id);
                 setShowAddModal(true);
@@ -874,6 +1033,7 @@
                 let yieldAmt = 1;
                 let finalStock = parseFloat(newMat.stock) || 0;
                 const lossVal = parseFloat(newMat.lossPercent) || 0;
+                const defaultPackSizeVal = parseFloat(newMat.defaultPackSize) || 1;
 
                 if (newMat.isSubBOM) {
                     finalRecipe = newMat.recipe.filter(r => r.materialId && r.amount).map(r => ({ ...r, amount: parseFloat(r.amount) }));
@@ -887,7 +1047,6 @@
                     if (!newMat.totalPrice || newMat.stock === '') return;
                     const totalPriceVal = parseFloat(newMat.totalPrice);
                     const baseCost = finalStock > 0 ? (totalPriceVal / finalStock) : 0;
-                    // เพิ่มสูตรคำนวณ % Loss ของวัตถุดิบที่ซื้อเข้ามา
                     finalCost = lossVal > 0 ? baseCost / (1 - (lossVal / 100)) : baseCost;
                 }
 
@@ -902,7 +1061,8 @@
                         isSubBOM: newMat.isSubBOM,
                         recipe: finalRecipe,
                         yieldAmount: yieldAmt,
-                        lossPercent: lossVal
+                        lossPercent: lossVal,
+                        defaultPackSize: defaultPackSizeVal
                     } : m));
                     showNotify('แก้ไขวัตถุดิบเรียบร้อยแล้ว');
                 } else {
@@ -916,7 +1076,8 @@
                         isSubBOM: newMat.isSubBOM,
                         recipe: finalRecipe,
                         yieldAmount: yieldAmt,
-                        lossPercent: lossVal
+                        lossPercent: lossVal,
+                        defaultPackSize: defaultPackSizeVal
                     };
                     setMaterials([...materials, newItem]);
                     showNotify('เพิ่มวัตถุดิบใหม่แล้ว');
@@ -971,9 +1132,15 @@
                                             <button onClick={() => handleEditClick(mat)} className="text-blue-500 hover:text-blue-700 p-1 transition-colors"><i className="fas fa-edit"></i></button>
                                             <button onClick={() => handleDeleteClick(mat.id)} className="text-red-400 hover:text-red-600 p-1 transition-colors"><i className="fas fa-trash-can"></i></button>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="font-bold text-lg text-red-600">{parseFloat(mat.stock).toFixed(2)}</p>
-                                            <p className="text-xs text-gray-500">{mat.unit}</p>
+                                        <div className="text-right flex flex-col items-end">
+                                            <p className={`font-bold text-lg ${mat.stock < 0 ? 'text-orange-500' : 'text-red-600'}`}>
+                                                {parseFloat(mat.stock).toFixed(2)} <span className="text-xs font-normal text-gray-500">{mat.unit}</span>
+                                            </p>
+                                            {mat.defaultPackSize && mat.defaultPackSize > 1 && (
+                                                <p className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded mt-1">
+                                                    ~{(parseFloat(mat.stock) / mat.defaultPackSize).toFixed(2)} ถุง/แพ็ค
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -989,7 +1156,7 @@
                                         <button onClick={() => {
                                             setStockAction({ isOpen: true, mat: mat, type: 'receive' });
                                             setReceivePackCount('1');
-                                            setReceivePackSize('');
+                                            setReceivePackSize(mat.defaultPackSize || '');
                                             setStockAmount('');
                                             setLotCost('');
                                         }} className="flex-1 bg-green-50 text-green-700 py-2 rounded-lg text-xs font-semibold hover:bg-green-100 transition-colors">
@@ -998,7 +1165,7 @@
                                     )}
                                     <button onClick={() => {
                                         setStockAction({ isOpen: true, mat: mat, type: 'check' });
-                                        setStockAmount('');
+                                        setStockAmount(mat.stock);
                                     }} className="flex-1 bg-blue-50 text-blue-700 py-2 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors">
                                         <i className="fas fa-scale-balanced mr-1"></i> นับจริง
                                     </button>
@@ -1013,7 +1180,6 @@
                         ))}
                     </div>
 
-                    {/* Action Modals */}
                     {stockAction.isOpen && stockAction.type !== 'produce' && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
@@ -1036,8 +1202,8 @@
                                                     <input type="number" step="0.01" value={receivePackCount} onChange={e => handleReceivePackChange(e.target.value, receivePackSize)} className="w-full border border-gray-200 rounded p-2 text-sm focus:border-red-500 focus:outline-none" placeholder="เช่น 1" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-xs text-gray-500">ปริมาณต่อ 1 ถุง</label>
-                                                    <input type="number" step="0.01" value={receivePackSize} onChange={e => handleReceivePackChange(receivePackCount, e.target.value)} className="w-full border border-gray-200 rounded p-2 text-sm focus:border-red-500 focus:outline-none" placeholder="เช่น 870" />
+                                                    <label className="text-xs text-gray-500">ปริมาณต่อ 1 ถุง ({stockAction.mat?.unit})</label>
+                                                    <input type="number" step="0.01" value={receivePackSize} onChange={e => handleReceivePackChange(receivePackCount, e.target.value)} className="w-full border border-gray-200 rounded p-2 text-sm focus:border-red-500 focus:outline-none text-blue-600 font-semibold" placeholder="เช่น 870" />
                                                 </div>
                                             </div>
                                         </div>
@@ -1082,7 +1248,7 @@
                                     )}
 
                                     <div className="flex space-x-3 mt-6">
-                                        <button type="button" onClick={() => { setStockAction({ isOpen: false, mat: null, type: 'receive' }); setStockAmount(''); setLotCost(''); setReceivePackCount('1'); setReceivePackSize(''); }} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
+                                        <button type="button" onClick={() => { setStockAction({ isOpen: false, mat: null, type: 'receive' }); setStockAmount(''); setLotCost(''); setNewMat(prev => ({...prev, packCount: 1})); }} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
                                         <button type="submit" className={`flex-1 py-3 rounded-lg text-white font-bold transition-colors shadow-md ${
                                             stockAction.type === 'waste' ? 'bg-red-600 hover:bg-red-700' : 
                                             stockAction.type === 'check' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
@@ -1095,7 +1261,6 @@
                         </div>
                     )}
 
-                    {/* Produce Modal */}
                     {stockAction.isOpen && stockAction.type === 'produce' && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm m-auto">
@@ -1140,14 +1305,13 @@
                         </div>
                     )}
 
-                    {/* Add/Edit Material Modal */}
                     {showAddModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm m-auto">
                                 <h3 className="text-lg font-bold mb-4">{editingMatId ? 'แก้ไขวัตถุดิบ' : 'เพิ่มวัตถุดิบใหม่'}</h3>
                                 <form onSubmit={handleAddMaterial} className="space-y-3">
                                     <div>
-                                        <label className="text-xs text-gray-500">ชื่อวัตถุดิบ</label>
+                                        <label className="text-xs text-gray-500">ชื่อวัตถิบ</label>
                                         <input required type="text" value={newMat.name} onChange={e => setNewMat({...newMat, name: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" />
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
@@ -1169,10 +1333,31 @@
                                         </div>
                                     </div>
 
-                                    {/* ส่วนเพิ่ม % Loss ของวัตถุดิบ */}
+                                    {!newMat.isSubBOM && (
+                                        <div>
+                                            <label className="text-xs text-gray-500 block">ปริมาณเริ่มต้นต่อ 1 ถุง/แพ็ค ({newMat.unit || 'หน่วย'})</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                value={newMat.defaultPackSize} 
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    setNewMat(prev => ({ 
+                                                        ...prev, 
+                                                        defaultPackSize: val,
+                                                        packSize: val,
+                                                        stock: prev.packCount ? (parseFloat(prev.packCount) * (parseFloat(val) || 0)).toString() : prev.stock
+                                                    }));
+                                                }} 
+                                                className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none font-semibold text-blue-600" 
+                                                placeholder="เช่น 870 หรือ 500"
+                                            />
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="text-xs text-gray-500">เปอร์เซ็นต์ Loss การสูญเสีย (%)</label>
-                                        <input type="number" step="0.1" min="0" max="99" value={newMat.lossPercent} onChange={e => setNewMat({...newMat, lossPercent: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none font-semibold text-orange-600" placeholder="เช่น 10% สำหรับผักหรือแต่งเนื้อ" />
+                                        <input type="number" step="0.1" min="0" max="99" value={newMat.lossPercent} onChange={e => setNewMat({...newMat, lossPercent: e.target.value})} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none font-semibold text-orange-600" placeholder="เช่น 10" />
                                     </div>
 
                                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 mt-2">
@@ -1222,11 +1407,11 @@
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <div>
                                                         <label className="text-xs text-gray-500">จำนวนที่ซื้อ (แพ็ค/ถุง)</label>
-                                                        <input required type="number" step="0.01" value={newMat.packCount} onChange={e => handlePackChange(e.target.value, newMat.packSize)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" placeholder="เช่น 1" />
+                                                        <input required type="number" step="0.01" value={newMat.packCount} onChange={e => handlePackChange(e.target.value, newMat.packSize || newMat.defaultPackSize)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" placeholder="เช่น 1" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs text-gray-500">ปริมาณต่อ 1 แพ็ค</label>
-                                                        <input required type="number" step="0.01" value={newMat.packSize} onChange={e => handlePackChange(newMat.packCount, e.target.value)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none" placeholder="เช่น 870" />
+                                                        <label className="text-xs text-gray-500">ปริมาณต่อ 1 แพ็ค ({newMat.unit})</label>
+                                                        <input required type="number" step="0.01" value={newMat.packSize} onChange={e => handlePackChange(newMat.packCount, e.target.value)} className="w-full border rounded-lg p-2 mt-1 focus:border-red-500 focus:outline-none text-blue-600 font-semibold" placeholder="เช่น 870" />
                                                     </div>
                                                 </div>
                                             </div>
@@ -1268,7 +1453,6 @@
                         </div>
                     )}
 
-                    {/* Delete Material Confirm Modal */}
                     {delMatConfirm.isOpen && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
@@ -1283,7 +1467,6 @@
                         </div>
                     )}
 
-                    {/* Reset All Materials Confirm Modal */}
                     {resetConfirm && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
@@ -1298,7 +1481,6 @@
                         </div>
                     )}
 
-                    {/* ส่วนแสดงประวัติการเคลื่อนไหวสต็อค */}
                     <div className="mt-8">
                         <h2 className="text-lg font-bold text-gray-700 mb-3 flex items-center border-b pb-2">
                             <i className="fas fa-clipboard-list mr-2 text-red-600"></i> ประวัติการเคลื่อนไหวสต็อค
@@ -1341,7 +1523,6 @@
                         )}
                     </div>
 
-                    {/* Undo Confirmation Modal */}
                     {undoConfirm.isOpen && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 transition-opacity">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center transform transition-all scale-100">
@@ -1438,7 +1619,6 @@
             return (
                 <div>
                     {!showAdd ? (
-                        // --- หน้าแสดงรายการเมนู (แผงหลัก) ---
                         <div>
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-lg font-bold text-gray-700">รายการเมนู</h2>
@@ -1476,7 +1656,6 @@
                             </div>
                         </div>
                     ) : (
-                        // --- หน้าฟอร์ม สร้าง/แก้ไขเมนู (แตกราคาและโชว์รายละเอียดต้นทุนที่นี่) ---
                         <div className="bg-white rounded-xl shadow-sm p-4">
                             <div className="flex justify-between items-center mb-4 border-b pb-2">
                                 <h2 className="text-lg font-bold text-gray-800">{editingMenuId ? 'แก้ไขเมนู' : 'สร้างเมนูใหม่'}</h2>
@@ -1517,7 +1696,6 @@
                                     </div>
                                 </div>
 
-                                {/* แตกราคาย่อยและคำนวณต้นทุนรวมให้ดูแบบ Real-time เฉพาะหน้าแก้ไขนี้ */}
                                 <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600 border border-gray-200 mt-2">
                                     <span className="font-bold block mb-2 text-gray-700"><i className="fas fa-calculator mr-1"></i> แตกต้นทุนย่อยตามสูตรปัจจุบัน:</span>
                                     <div className="space-y-1.5">
@@ -1532,7 +1710,7 @@
                                                 </div>
                                             );
                                         })}
-                                        <div className="pt-2 border-t border-gray-300 flex justify-between font-bold text-sm text-gray-800">
+                                        <div className="pt-2 border-t border-gray-200 flex justify-between font-bold text-sm text-gray-800">
                                             <span>รวมต้นทุนอาหารทั้งหมด:</span>
                                             <span className="text-red-600">฿{recipe.reduce((sum, r) => {
                                                 const mat = materials.find(m => m.id === r.materialId);
@@ -1552,7 +1730,6 @@
                         </div>
                     )}
 
-                    {/* Delete Confirm Modal */}
                     {deleteConfirm.isOpen && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
@@ -1575,7 +1752,7 @@
             const [voidConfirm, setVoidConfirm] = useState({ isOpen: false, sale: null });
 
             const sortedSales = useMemo(() => {
-                return [...sales].sort((a, b) => new Date(b.date) - new Date(a.date));
+                return [...sales].sort((a, b) => parseSheetDate(b.date) - parseSheetDate(a.date));
             }, [sales]);
 
             const handleVoidClick = (sale) => {
@@ -1609,12 +1786,12 @@
 
             const formatTime = (dateString) => {
                 const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
-                return new Date(dateString).toLocaleTimeString('th-TH', options);
+                return parseSheetDate(dateString).toLocaleTimeString('th-TH', options);
             };
             
             const formatDate = (dateString) => {
                 const options = { day: '2-digit', month: 'short', year: 'numeric' };
-                return new Date(dateString).toLocaleDateString('th-TH', options);
+                return parseSheetDate(dateString).toLocaleDateString('th-TH', options);
             };
 
             return (
@@ -1674,7 +1851,6 @@
                         </div>
                     )}
 
-                    {/* Void Confirmation Modal */}
                     {voidConfirm.isOpen && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
@@ -1699,7 +1875,7 @@
             const [delConfirm, setDelConfirm] = useState({ isOpen: false, id: null });
 
             const sortedExpenses = useMemo(() => {
-                return [...(expenses || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
+                return [...(expenses || [])].sort((a, b) => parseSheetDate(b.date) - parseSheetDate(a.date));
             }, [expenses]);
 
             const handleAddExpense = (e) => {
@@ -1727,7 +1903,7 @@
 
             const formatDate = (dateString) => {
                 const options = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
-                return new Date(dateString).toLocaleString('th-TH', options);
+                return parseSheetDate(dateString).toLocaleString('th-TH', options);
             };
 
             const getCategoryStyle = (cat) => {
@@ -1779,7 +1955,6 @@
                         </div>
                     )}
 
-                    {/* Add Expense Modal */}
                     {showAddModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm transform transition-all scale-100">
@@ -1816,7 +1991,6 @@
                         </div>
                     )}
 
-                    {/* Delete Confirm Modal */}
                     {delConfirm.isOpen && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
