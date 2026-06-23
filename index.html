@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -41,6 +40,27 @@
         import { createRoot } from 'react-dom/client';
 
         const API_URL = "https://script.google.com/macros/s/AKfycbx2n5RUmzApTA-rr4NTb2XW5I8awmWP7vDn1iyZGnxfkCGThgtp8Iy7nkKYqmB2ZrgHLw/exec"; 
+
+        // ฟังก์ชันดึงวันเวลาปัจจุบันในฟอร์แมตประเทศไทย (YYYY-MM-DD HH:mm:ss) เพื่อความถูกต้องของ Timezone
+        function getLocalDateTimeString() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+
+        // ฟังก์ชันดึงเฉพาะวันที่ปัจจุบันในฟอร์แมตประเทศไทย (YYYY-MM-DD) ป้องกันปัญหาใช้วันที่ UTC ของเมื่อวานเมื่อใช้งานตอนเช้า
+        function getLocalDateString() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
 
         // ฟังก์ชันพิเศษสำหรับแกะรูปแบบวันที่จาก Google Sheets
         function parseSheetDate(dateInput) {
@@ -254,33 +274,44 @@
 
         function DashboardView({ materials, sales, menus, expenses }) {
             const [filterType, setFilterType] = useState('today');
-            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [filterLocation, setFilterLocation] = useState('ทั้งหมด');
+            const [startDate, setStartDate] = useState(getLocalDateString());
+            const [endDate, setEndDate] = useState(getLocalDateString());
             
             const chartScrollRef = useRef(null);
+
+            const locations = useMemo(() => {
+                const locs = new Set(sales.map(s => s.location).filter(Boolean));
+                return ['ทั้งหมด', ...Array.from(locs)];
+            }, [sales]);
 
             const filteredSales = useMemo(() => {
                 return sales.filter(s => {
                     const saleDate = parseSheetDate(s.date);
                     const now = new Date();
+                    let dateMatch = true;
+
                     if (filterType === 'today') {
-                        return saleDate.getDate() === now.getDate() && 
+                        dateMatch = saleDate.getDate() === now.getDate() && 
                                saleDate.getMonth() === now.getMonth() && 
                                saleDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'month') {
-                        return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
+                        dateMatch = saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'year') {
-                        return saleDate.getFullYear() === now.getFullYear();
+                        dateMatch = saleDate.getFullYear() === now.getFullYear();
                     } else if (filterType === 'custom') {
                         const sDate = new Date(startDate);
                         sDate.setHours(0,0,0,0);
                         const eDate = new Date(endDate);
                         eDate.setHours(23,59,59,999);
-                        return saleDate >= sDate && saleDate <= eDate;
+                        dateMatch = saleDate >= sDate && saleDate <= eDate;
                     }
-                    return true;
+                    
+                    let locMatch = filterLocation === 'ทั้งหมด' || s.location === filterLocation;
+                    
+                    return dateMatch && locMatch;
                 });
-            }, [sales, filterType, startDate, endDate]);
+            }, [sales, filterType, startDate, endDate, filterLocation]);
 
             const filteredExpenses = useMemo(() => {
                 const expList = expenses || [];
@@ -341,7 +372,8 @@
 
             const hourlySales = useMemo(() => {
                 const slots = {};
-                for (let i = 8; i <= 21; i++) {
+                // ปรับช่วงเวลาให้สอดคล้องกับเวลาที่ร้านเปิดขายจริง (14:00 - 23:30)
+                for (let i = 14; i <= 23; i++) {
                     const hh = String(i).padStart(2, '0');
                     slots[`${hh}:00`] = 0;
                     slots[`${hh}:30`] = 0;
@@ -355,10 +387,13 @@
                     const slotMin = minutes >= 30 ? '30' : '00';
                     const slotStr = `${String(hours).padStart(2, '0')}:${slotMin}`;
                     
+                    // นับจำนวนชิ้นที่ขายได้ แทนจำนวนเงิน
+                    const itemsCount = sale.items ? sale.items.reduce((acc, item) => acc + item.qty, 0) : 0;
+                    
                     if (slots[slotStr] !== undefined) {
-                        slots[slotStr] += sale.totalRevenue;
+                        slots[slotStr] += itemsCount;
                     } else {
-                        slots[slotStr] = sale.totalRevenue;
+                        slots[slotStr] = itemsCount;
                     }
                 });
                 
@@ -366,9 +401,9 @@
                 return sortedKeys.map(slot => ({ label: slot, value: slots[slot] }));
             }, [filteredSales]);
 
-            const maxHourlyRevenue = useMemo(() => {
+            const maxHourlyItems = useMemo(() => {
                 const values = hourlySales.map(h => h.value);
-                return Math.max(...values, 100); 
+                return Math.max(...values, 10); // ตั้งขั้นต่ำที่ 10 ชิ้น เพื่อให้กราฟสมดุล
             }, [hourlySales]);
 
             useEffect(() => {
@@ -415,10 +450,21 @@
                     <div className="flex flex-col space-y-3">
                         <div className="flex justify-between items-center">
                             <h2 className="text-lg font-bold text-gray-700">ภาพรวมยอดขาย ({getFilterLabel()})</h2>
+                        </div>
+                        <div className="flex space-x-2">
+                            <select 
+                                value={filterLocation} 
+                                onChange={e => setFilterLocation(e.target.value)}
+                                className="flex-1 border border-gray-200 rounded-lg p-2 text-sm bg-white focus:outline-none focus:border-red-500 font-medium text-gray-700 shadow-sm"
+                            >
+                                {locations.map(loc => (
+                                    <option key={loc} value={loc}>{loc === 'ทั้งหมด' ? 'ทุกสาขา/สถานที่' : loc}</option>
+                                ))}
+                            </select>
                             <select 
                                 value={filterType} 
                                 onChange={e => setFilterType(e.target.value)}
-                                className="border border-gray-200 rounded-lg p-2 text-sm bg-white focus:outline-none focus:border-red-500 font-medium text-gray-700 shadow-sm"
+                                className="flex-1 border border-gray-200 rounded-lg p-2 text-sm bg-white focus:outline-none focus:border-red-500 font-medium text-gray-700 shadow-sm"
                             >
                                 <option value="today">วันนี้</option>
                                 <option value="month">เดือนนี้</option>
@@ -464,17 +510,17 @@
 
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                         <h3 className="font-bold text-gray-700 mb-4 flex items-center">
-                            <i className="fas fa-clock text-red-600 mr-2"></i> ช่วงเวลาขายดี (ยอดขายตามช่วงเวลา)
+                            <i className="fas fa-clock text-red-600 mr-2"></i> ช่วงเวลาขายดี (จำนวนชิ้นตามช่วงเวลา)
                         </h3>
                         <div ref={chartScrollRef} className="h-56 flex space-x-1 pt-8 overflow-x-auto hide-scroll border-b border-gray-200 pb-2">
                             {hourlySales.map(hourData => {
-                                const pct = maxHourlyRevenue > 0 ? (hourData.value / maxHourlyRevenue) * 100 : 0;
+                                const pct = maxHourlyItems > 0 ? (hourData.value / maxHourlyItems) * 100 : 0;
                                 return (
                                     <div key={hourData.label} className="flex-1 flex flex-col justify-end items-center min-w-[32px] group h-full">
                                         <div className="w-full flex-1 flex flex-col justify-end relative mt-2">
                                             {hourData.value > 0 && (
                                                 <span className="absolute -top-5 left-1/2 transform -translate-x-1/2 text-[9px] text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 bg-white border border-red-100 px-1 rounded shadow-sm">
-                                                    ฿{hourData.value.toFixed(0)}
+                                                    {hourData.value} ชิ้น
                                                 </span>
                                             )}
                                             <div className="w-full bg-gray-50 rounded-t transition-colors relative" style={{ height: `${Math.max(pct, 1)}%` }}>
@@ -486,7 +532,7 @@
                                 );
                             })}
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-2 text-center">* นำนิ้วแตะหรือชี้ที่แท่งกราฟเพื่อดูมูลค่ารวม</p>
+                        <p className="text-[10px] text-gray-400 mt-2 text-center">* นำนิ้วแตะหรือชี้ที่แท่งกราฟเพื่อดูจำนวนชิ้นที่ขายได้</p>
                     </div>
 
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
@@ -655,7 +701,7 @@
                 
                 const newSale = {
                     id: Date.now().toString(),
-                    date: new Date().toISOString(),
+                    date: getLocalDateTimeString(), // บันทึกเป็นเวลาท้องถิ่นตรงๆ
                     location: finalLocation,
                     items: cart,
                     totalRevenue: totalAmount,
@@ -757,8 +803,8 @@
 
         function HistoryView({ sales, setSales, materials, setMaterials, showNotify }) {
             const [filterType, setFilterType] = useState('today');
-            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [startDate, setStartDate] = useState(getLocalDateString());
+            const [endDate, setEndDate] = useState(getLocalDateString());
             const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, saleId: null });
 
             const filteredAndSortedSales = useMemo(() => {
@@ -1026,7 +1072,7 @@
                         if (type === 'waste') {
                             const lostCost = parsedAmount * m.cost;
                             newLogs.push({
-                                id: Date.now().toString(), date: new Date().toISOString(),
+                                id: Date.now().toString(), date: getLocalDateTimeString(),
                                 materialId: m.id, materialName: m.name, type: 'ของเสีย', amountDiff: -parsedAmount, unit: m.unit, lostCost: lostCost
                             });
                             return { ...m, stock: m.stock - parsedAmount }; 
@@ -1036,7 +1082,7 @@
                                 const isLost = diff < 0;
                                 const lostCost = Math.abs(diff) * m.cost;
                                 newLogs.push({
-                                    id: Date.now().toString(), date: new Date().toISOString(),
+                                    id: Date.now().toString(), date: getLocalDateTimeString(),
                                     materialId: m.id, materialName: m.name, type: isLost ? 'สต็อคขาด' : 'สต็อคเกิน', 
                                     amountDiff: diff, unit: m.unit, lostCost: isLost ? lostCost : -lostCost
                                 });
@@ -1060,7 +1106,7 @@
                             }
                             
                             newLogs.push({
-                                id: Date.now().toString(), date: new Date().toISOString(),
+                                id: Date.now().toString(), date: getLocalDateTimeString(),
                                 materialId: m.id, materialName: m.name, type: 'รับเข้า', amountDiff: parsedAmount, unit: m.unit, lostCost: -addedTotalCost
                             });
                             
@@ -1115,7 +1161,7 @@
                 }
 
                 let newLogs = [...stockLogs];
-                const timestamp = new Date().toISOString();
+                const timestamp = getLocalDateTimeString();
                 const logIdBase = Date.now();
 
                 const updatedMaterials = materials.map(m => {
@@ -1640,7 +1686,7 @@
                             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
                                 <div className="text-red-500 text-5xl mb-4"><i className="fas fa-exclamation-triangle"></i></div>
                                 <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการล้างจำนวนสต็อค</h3>
-                                <p className="text-sm text-gray-600 mb-6">คุณต้องการรีเซ็ตจำนวนสต็อค "ทั้งหมดให้เป็น 0" ใช่หรือไม่?<br/>(รายชื่อวัตถุดิบจะยังคงอยู่เหมือนเดิม)</p>
+                                <p className="text-sm text-gray-600 mb-6">คุณต้องการรีเซ็ตจำนวนสต็อค "ทั้งหมดให้เป็น 0" ใช่หรือไม่?<br/>(รายชื่อวัตถิบจะยังคงอยู่เหมือนเดิม)</p>
                                 <div className="flex space-x-3">
                                     <button onClick={() => setResetConfirm(false)} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ยกเลิก</button>
                                     <button onClick={executeReset} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันรีเซ็ตเป็น 0</button>
@@ -1713,7 +1759,6 @@
             const [editingMenuId, setEditingMenuId] = useState(null);
             const [newMenu, setNewMenu] = useState({ name: '', price: '', image: '🌯', category: 'main' });
             const [recipe, setRecipe] = useState([{ materialId: '', amount: '' }]);
-            // เพิ่ม State เก็บการจัดองค์ประกอบของเซ็ตโปรโมชั่นโดยดึงจากรายการเมนูที่สร้างแล้ว
             const [composition, setComposition] = useState([{ menuId: '', qty: 1 }]);
             const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, menuId: null });
 
@@ -1729,7 +1774,6 @@
                 setRecipe(recipe.filter((_, i) => i !== index));
             };
 
-            // จัดการกับการเพิ่ม/ลด รายการเมนูในเซ็ต
             const handleAddCompItem = () => setComposition([...composition, { menuId: '', qty: 1 }]);
             
             const handleUpdateComp = (index, field, value) => {
@@ -1781,7 +1825,6 @@
                         return;
                     }
                     
-                    // แปลงความสัมพันธ์ เมนู -> วัตถุดิบ (Flatten recipe)
                     const recipeMap = {};
                     finalComposition.forEach(comp => {
                         const targetMenu = menus.find(m => m.id === comp.menuId);
@@ -1833,7 +1876,6 @@
                 resetForm();
             };
 
-            // คัดแยกและสรุปสูตรวัตถุดิบ (BOM) ในเวลาเรียลไทม์เพื่อสแกนดูต้นทุนจริงขณะกำลังแก้ไข
             const currentRecipeForCost = useMemo(() => {
                 if (newMenu.category === 'promo') {
                     const recipeMap = {};
@@ -1857,7 +1899,6 @@
                 }
             }, [newMenu.category, recipe, composition, menus]);
 
-            // จำกัดเมนูที่สามารถนำมาเข้าโปรโมชั่นเซ็ตได้ (ป้องกันการเลือกโปรโมชั่นซ้อนโปรโมชั่นซึ่งอาจทำให้ระบบค้าง)
             const availableMenusForPromo = useMemo(() => {
                 return menus.filter(m => m.category !== 'promo' && m.id !== editingMenuId);
             }, [menus, editingMenuId]);
@@ -1877,7 +1918,7 @@
                                 {menus.map(menu => {
                                     const cost = getMenuCost(menu.recipe);
                                     const profit = menu.price - cost;
-                                    const margin = (profit / menu.price) * 100;
+                                    const margin = menu.price > 0 ? (profit / menu.price) * 100 : 0;
                                     
                                     return (
                                         <div key={menu.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
@@ -1939,7 +1980,6 @@
 
                                 <div className="border-t pt-4">
                                     {newMenu.category === 'promo' ? (
-                                        // --- โหมดโปรโมชั่น: ดึงรายการเมนูมาจัดเซ็ต ---
                                         <div>
                                             <div className="flex justify-between items-center mb-2">
                                                 <label className="text-sm font-bold text-gray-700">ดึงเมนูที่มีอยู่มาจัดเป็นเซ็ต</label>
@@ -1962,7 +2002,6 @@
                                             </div>
                                         </div>
                                     ) : (
-                                        // --- โหมดเมนูหลัก: กำหนดส่วนผสมวัตถุดิบตามปกติ ---
                                         <div>
                                             <div className="flex justify-between items-center mb-2">
                                                 <label className="text-sm font-bold text-gray-700">ระบุส่วนประกอบสูตรอาหาร (วัตถุดิบ)</label>
@@ -2050,7 +2089,7 @@
                 
                 const newItem = {
                     id: 'exp' + Date.now(),
-                    date: new Date().toISOString(),
+                    date: getLocalDateTimeString(), // บันทึกเป็นเวลาท้องถิ่นตรงๆ
                     topic: newExp.topic,
                     amount: parseFloat(newExp.amount),
                     category: newExp.category || 'จิปาถะ'
