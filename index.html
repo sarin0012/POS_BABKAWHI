@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -28,13 +29,15 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .toggle-checkbox:checked { right: 0; border-color: #dc2626; }
         .toggle-checkbox:checked + .toggle-label { background-color: #dc2626; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo } from 'react';
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
 
         const API_URL = "https://script.google.com/macros/s/AKfycbx2n5RUmzApTA-rr4NTb2XW5I8awmWP7vDn1iyZGnxfkCGThgtp8Iy7nkKYqmB2ZrgHLw/exec"; 
@@ -105,7 +108,6 @@
             return [storedValue, setValue];
         }
 
-        // Custom Hook สำหรับ Cloud State (ผสม LocalStorage)
         function useCloudState(key, initialValue, apiUrl) {
             const [data, setData] = useState(initialValue);
             const [isLoading, setIsLoading] = useState(true);
@@ -164,11 +166,12 @@
         ];
 
         const initialMenus = [
-            { id: 'menu1', name: 'เคบับไก่', price: 60, image: '🌯🐔', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
-            { id: 'menu2', name: 'เคบับไก่ชีส', price: 75, image: '🌯🐔🧀', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
-            { id: 'menu3', name: 'เคบับไก่กรอบ', price: 65, image: '🌯🍗', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
-            { id: 'menu4', name: 'เคบับไก่กรอบชีส', price: 80, image: '🌯🍗🧀', recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
-            { id: 'menu5', name: 'เคบับมินิไก่กรอบ', price: 45, image: '🌮🍗', recipe: [{ materialId: 'm1', amount: 0.5 }, { materialId: 'm3', amount: 0.5 }, { materialId: 'm5', amount: 0.5 }, { materialId: 'm6', amount: 15 }] }
+            { id: 'menu1', name: 'เคบับไก่', price: 60, image: '🌯🐔', category: 'main', isSet: false, recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu2', name: 'เคบับไก่ชีส', price: 75, image: '🌯🐔🧀', category: 'main', isSet: false, recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm2', amount: 100 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu3', name: 'เคบับไก่กรอบ', price: 65, image: '🌯🍗', category: 'main', isSet: false, recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu4', name: 'เคบับไก่กรอบชีส', price: 80, image: '🌯🍗🧀', category: 'main', isSet: false, recipe: [{ materialId: 'm1', amount: 1 }, { materialId: 'm3', amount: 1 }, { materialId: 'm4', amount: 1 }, { materialId: 'm5', amount: 1 }, { materialId: 'm6', amount: 30 }] },
+            { id: 'menu5', name: 'เคบับมินิไก่กรอบ', price: 45, image: '🌮🍗', category: 'main', isSet: false, recipe: [{ materialId: 'm1', amount: 0.5 }, { materialId: 'm3', amount: 0.5 }, { materialId: 'm5', amount: 0.5 }, { materialId: 'm6', amount: 15 }] },
+            { id: 'promo1', name: 'เซ็ตคู่หู (ไก่+ไก่กรอบ)', price: 120, image: '🔥🌯', category: 'promo', isSet: true, composition: [{ menuId: 'menu1', qty: 1 }, { menuId: 'menu3', qty: 1 }], recipe: [{ materialId: 'm1', amount: 2 }, { materialId: 'm2', amount: 100 }, { materialId: 'm3', amount: 1 }, { materialId: 'm5', amount: 2 }, { materialId: 'm6', amount: 60 }] }
         ];
 
         function App() {
@@ -249,14 +252,12 @@
             );
         }
 
-        // 1. Dashboard View
         function DashboardView({ materials, sales, menus, expenses }) {
             const [filterType, setFilterType] = useState('today');
             const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
             const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             
-            // เพิ่ม Ref สำหรับตัวกรอบของกราฟ
-            const chartScrollRef = React.useRef(null);
+            const chartScrollRef = useRef(null);
 
             const filteredSales = useMemo(() => {
                 return sales.filter(s => {
@@ -338,10 +339,8 @@
                     .sort((a, b) => b.count - a.count);
             }, [filteredSales]);
 
-            // กราฟช่วงเวลาขายดี (แบ่งช่วงเวลาทุกๆ 30 นาที และบวกสะสมตามช่วงวันที่กรอง)
             const hourlySales = useMemo(() => {
                 const slots = {};
-                // ตั้งค่าช่วงเวลาเปิดร้าน 08:00 - 21:30
                 for (let i = 8; i <= 21; i++) {
                     const hh = String(i).padStart(2, '0');
                     slots[`${hh}:00`] = 0;
@@ -353,18 +352,16 @@
                     const hours = date.getHours();
                     const minutes = date.getMinutes();
                     
-                    // ปัดเศษนาทีให้อยู่ใน Slot :00 หรือ :30
                     const slotMin = minutes >= 30 ? '30' : '00';
                     const slotStr = `${String(hours).padStart(2, '0')}:${slotMin}`;
                     
                     if (slots[slotStr] !== undefined) {
                         slots[slotStr] += sale.totalRevenue;
                     } else {
-                        slots[slotStr] = sale.totalRevenue; // กรณีขายนอกเวลาปกติ
+                        slots[slotStr] = sale.totalRevenue;
                     }
                 });
                 
-                // เรียงลำดับคีย์เวลาเผื่อกรณีมีนอกเวลาแทรกเข้ามา
                 const sortedKeys = Object.keys(slots).sort();
                 return sortedKeys.map(slot => ({ label: slot, value: slots[slot] }));
             }, [filteredSales]);
@@ -374,13 +371,11 @@
                 return Math.max(...values, 100); 
             }, [hourlySales]);
 
-            // เลื่อนกราฟไปตรงกลางของแท่งที่มียอดขายสูงสุดอัตโนมัติ
-            React.useEffect(() => {
+            useEffect(() => {
                 if (chartScrollRef.current && hourlySales.length > 0) {
                     let maxIdx = 0;
                     let maxVal = -1;
                     
-                    // หา index ของเวลาที่ยอดขายเยอะที่สุด
                     hourlySales.forEach((h, i) => {
                         if (h.value > maxVal) {
                             maxVal = h.value;
@@ -390,17 +385,14 @@
 
                     if (maxVal > 0) {
                         const container = chartScrollRef.current;
-                        // หน่วงเวลาเล็กน้อยเพื่อให้เบราว์เซอร์จัด Layout เสร็จก่อนสั่งเลื่อน
                         setTimeout(() => {
                             const child = container.children[maxIdx];
                             if (child) {
-                                // คำนวณระยะให้แท่งที่สูงที่สุดมาอยู่ตรงกลางจอ
                                 const scrollPos = child.offsetLeft - (container.clientWidth / 2) + (child.clientWidth / 2);
                                 container.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
                             }
                         }, 150);
                     } else {
-                        // ถ้าไม่มียอดขายเลย ให้เลื่อนกลับไปซ้ายสุด
                         chartScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
                     }
                 }
@@ -479,7 +471,6 @@
                                 const pct = maxHourlyRevenue > 0 ? (hourData.value / maxHourlyRevenue) * 100 : 0;
                                 return (
                                     <div key={hourData.label} className="flex-1 flex flex-col justify-end items-center min-w-[32px] group h-full">
-                                        {/* กล่องบรรจุแท่งกราฟ บังคับความสูงเต็ม (h-full) ให้ height เป็น % ทำงานได้ */}
                                         <div className="w-full flex-1 flex flex-col justify-end relative mt-2">
                                             {hourData.value > 0 && (
                                                 <span className="absolute -top-5 left-1/2 transform -translate-x-1/2 text-[9px] text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 bg-white border border-red-100 px-1 rounded shadow-sm">
@@ -542,10 +533,12 @@
             );
         }
 
-        // 2. POS View
         function POSView({ menus, materials, sales, setSales, setMaterials, showNotify, getMenuCost, cart, setCart, useLocalStorage }) {
             const [customLocation, setCustomLocation] = useLocalStorage('kebab_custom_location', 'หน้าร้าน');
             const [isLineman, setIsLineman] = useState(false);
+            const [menuFilter, setMenuFilter] = useState('main'); // 'main', 'promo', 'all'
+
+            const displayedMenus = menus.filter(m => menuFilter === 'all' || (m.category || 'main') === menuFilter);
 
             const addToCart = (menu) => {
                 setCart(prev => {
@@ -683,8 +676,14 @@
 
             return (
                 <div className="flex flex-col h-full relative">
+                    <div className="flex space-x-2 mb-3 overflow-x-auto hide-scroll pb-1">
+                        <button onClick={() => setMenuFilter('main')} className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm ${menuFilter === 'main' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>เมนูหลัก</button>
+                        <button onClick={() => setMenuFilter('promo')} className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm ${menuFilter === 'promo' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}><i className="fas fa-fire mr-1"></i>โปรโมชั่น / เซ็ต</button>
+                        <button onClick={() => setMenuFilter('all')} className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm ${menuFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>ทั้งหมด</button>
+                    </div>
+
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 overflow-y-auto">
-                        {menus.map(menu => (
+                        {displayedMenus.map(menu => (
                             <button key={menu.id} onClick={() => addToCart(menu)} className="bg-white p-4 rounded-xl shadow-sm active:scale-95 transition-transform flex flex-col items-center border border-gray-100 hover:border-red-500">
                                 <span className="text-4xl mb-2">{menu.image || '🌯'}</span>
                                 <span className="font-semibold text-gray-800 text-center text-sm">{menu.name}</span>
@@ -756,7 +755,176 @@
             );
         }
 
-        // 3. Inventory View
+        function HistoryView({ sales, setSales, materials, setMaterials, showNotify }) {
+            const [filterType, setFilterType] = useState('today');
+            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, saleId: null });
+
+            const filteredAndSortedSales = useMemo(() => {
+                const list = sales || [];
+                const filtered = list.filter(s => {
+                    const saleDate = parseSheetDate(s.date);
+                    const now = new Date();
+                    if (filterType === 'today') {
+                        return saleDate.getDate() === now.getDate() && 
+                               saleDate.getMonth() === now.getMonth() && 
+                               saleDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'month') {
+                        return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'year') {
+                        return saleDate.getFullYear() === now.getFullYear();
+                    } else if (filterType === 'custom') {
+                        const sDate = new Date(startDate);
+                        sDate.setHours(0,0,0,0);
+                        const eDate = new Date(endDate);
+                        eDate.setHours(23,59,59,999);
+                        return saleDate >= sDate && saleDate <= eDate;
+                    }
+                    return true; // สำหรับกรณีเลือก 'all'
+                });
+                return filtered.sort((a, b) => parseSheetDate(b.date) - parseSheetDate(a.date));
+            }, [sales, filterType, startDate, endDate]);
+
+            const formatDate = (dateString) => {
+                const options = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+                return parseSheetDate(dateString).toLocaleString('th-TH', options);
+            };
+
+            const handleVoidSale = () => {
+                const saleToVoid = sales.find(s => s.id === deleteConfirm.saleId);
+                if (!saleToVoid) return;
+
+                // Restore materials
+                let materialsToRestore = {};
+                saleToVoid.items.forEach(item => {
+                    item.recipe.forEach(r => {
+                        if (!materialsToRestore[r.materialId]) materialsToRestore[r.materialId] = 0;
+                        materialsToRestore[r.materialId] += (r.amount * item.qty);
+                    });
+                });
+
+                const newMaterials = materials.map(mat => {
+                    if (materialsToRestore[mat.id]) {
+                        return { ...mat, stock: mat.stock + materialsToRestore[mat.id] };
+                    }
+                    return mat;
+                });
+
+                // Update state
+                setMaterials(newMaterials);
+                setSales(sales.filter(s => s.id !== deleteConfirm.saleId));
+                
+                setDeleteConfirm({ isOpen: false, saleId: null });
+                showNotify('ยกเลิกบิลและคืนสต็อคเรียบร้อย', 'success');
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex flex-col space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-gray-700">ประวัติการขาย</h2>
+                            <select 
+                                value={filterType} 
+                                onChange={e => setFilterType(e.target.value)}
+                                className="border border-gray-200 rounded-lg p-2 text-sm bg-white focus:outline-none focus:border-red-500 font-medium text-gray-700 shadow-sm"
+                            >
+                                <option value="today">วันนี้</option>
+                                <option value="month">เดือนนี้</option>
+                                <option value="year">ปีนี้</option>
+                                <option value="all">ทั้งหมด</option>
+                                <option value="custom">กำหนดช่วงวันที่</option>
+                            </select>
+                        </div>
+                        
+                        {filterType === 'custom' && (
+                            <div className="flex space-x-2 bg-white p-3 rounded-lg shadow-sm border border-gray-100 animate-fade-in">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">เริ่มวันที่</label>
+                                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border border-gray-200 rounded p-1.5 text-sm text-gray-700 focus:outline-none focus:border-red-400" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">ถึงวันที่</label>
+                                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-200 rounded p-1.5 text-sm text-gray-700 focus:outline-none focus:border-red-400" />
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div className="text-right">
+                            <span className="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold">{filteredAndSortedSales.length} รายการ</span>
+                        </div>
+                    </div>
+
+                    {filteredAndSortedSales.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl shadow-sm text-center border border-gray-100">
+                            <i className="fas fa-receipt text-4xl text-gray-300 mb-3 block"></i>
+                            <p className="text-gray-500">ไม่พบประวัติการขายในช่วงเวลานี้</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {filteredAndSortedSales.map(sale => (
+                                <div 
+                                    key={sale.id} 
+                                    className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col transition-colors"
+                                >
+                                    <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2">
+                                        <div>
+                                            <div className="flex items-center space-x-2">
+                                                <h3 className="font-bold text-gray-800 text-sm">บิล #{String(sale.id).slice(-6)}</h3>
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
+                                                    {sale.location}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1"><i className="far fa-clock mr-1"></i>{formatDate(sale.date)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-green-600 text-lg">฿{sale.totalRevenue.toFixed(2)}</p>
+                                            <p className="text-[10px] text-gray-400">{sale.items.reduce((acc, it) => acc + it.qty, 0)} ชิ้น</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-gray-50 rounded-lg p-2 mb-3">
+                                        {sale.items.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between items-center text-xs border-b border-dashed border-gray-200 pb-1 pt-1 last:border-0 last:pb-0">
+                                                <div className="flex-1 truncate pr-2">
+                                                    <span className="font-medium text-gray-700">{item.name}</span>
+                                                    <span className="text-gray-500 ml-1">x{item.qty}</span>
+                                                </div>
+                                                <span className="font-semibold text-gray-700">฿{item.price * item.qty}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button 
+                                            onClick={() => setDeleteConfirm({ isOpen: true, saleId: sale.id })}
+                                            className="text-xs text-red-500 hover:text-white hover:bg-red-500 bg-red-50 px-3 py-1.5 rounded transition-colors font-bold flex items-center"
+                                        >
+                                            <i className="fas fa-undo mr-1"></i> ยกเลิกบิลและคืนสต็อค
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {deleteConfirm.isOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
+                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-exclamation-triangle"></i></div>
+                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการยกเลิกบิล</h3>
+                                <p className="text-sm text-gray-600 mb-6">การยกเลิกบิลจะลบยอดขายนี้และคืนจำนวนสต็อคกลับเข้าระบบ คุณต้องการดำเนินการต่อหรือไม่?</p>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => setDeleteConfirm({ isOpen: false, saleId: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ปิด</button>
+                                    <button onClick={handleVoidSale} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันยกเลิก</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         function InventoryView({ materials, setMaterials, showNotify, stockLogs, setStockLogs }) {
             const [showAddModal, setShowAddModal] = useState(false);
             const [editingMatId, setEditingMatId] = useState(null); 
@@ -1540,12 +1708,13 @@
             );
         }
 
-        // 4. Menu View
         function MenuView({ menus, setMenus, materials, getMenuCost, showNotify }) {
             const [showAdd, setShowAdd] = useState(false);
             const [editingMenuId, setEditingMenuId] = useState(null);
-            const [newMenu, setNewMenu] = useState({ name: '', price: '', image: '🌯' });
+            const [newMenu, setNewMenu] = useState({ name: '', price: '', image: '🌯', category: 'main' });
             const [recipe, setRecipe] = useState([{ materialId: '', amount: '' }]);
+            // เพิ่ม State เก็บการจัดองค์ประกอบของเซ็ตโปรโมชั่นโดยดึงจากรายการเมนูที่สร้างแล้ว
+            const [composition, setComposition] = useState([{ menuId: '', qty: 1 }]);
             const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, menuId: null });
 
             const handleAddRecipeItem = () => setRecipe([...recipe, { materialId: '', amount: '' }]);
@@ -1560,16 +1729,31 @@
                 setRecipe(recipe.filter((_, i) => i !== index));
             };
 
+            // จัดการกับการเพิ่ม/ลด รายการเมนูในเซ็ต
+            const handleAddCompItem = () => setComposition([...composition, { menuId: '', qty: 1 }]);
+            
+            const handleUpdateComp = (index, field, value) => {
+                const newC = [...composition];
+                newC[index][field] = value;
+                setComposition(newC);
+            };
+
+            const handleRemoveCompItem = (index) => {
+                setComposition(composition.filter((_, i) => i !== index));
+            };
+
             const resetForm = () => {
-                setNewMenu({ name: '', price: '', image: '🌯' });
+                setNewMenu({ name: '', price: '', image: '🌯', category: 'main' });
                 setRecipe([{ materialId: '', amount: '' }]);
+                setComposition([{ menuId: '', qty: 1 }]);
                 setEditingMenuId(null);
                 setShowAdd(false);
             };
 
             const handleEditMenu = (menu) => {
-                setNewMenu({ name: menu.name, price: menu.price, image: menu.image || '🌯' });
-                setRecipe(menu.recipe.length > 0 ? menu.recipe.map(r => ({ materialId: r.materialId, amount: r.amount })) : [{ materialId: '', amount: '' }]);
+                setNewMenu({ name: menu.name, price: menu.price, image: menu.image || '🌯', category: menu.category || 'main' });
+                setRecipe(menu.recipe && menu.recipe.length > 0 ? menu.recipe.map(r => ({ materialId: r.materialId, amount: r.amount })) : [{ materialId: '', amount: '' }]);
+                setComposition(menu.composition && menu.composition.length > 0 ? menu.composition.map(c => ({ menuId: c.menuId, qty: c.qty })) : [{ menuId: '', qty: 1 }]);
                 setEditingMenuId(menu.id);
                 setShowAdd(true);
             };
@@ -1586,10 +1770,39 @@
 
             const handleSaveMenu = (e) => {
                 e.preventDefault();
-                const validRecipe = recipe.filter(r => r.materialId && r.amount).map(r => ({ ...r, amount: parseFloat(r.amount) }));
+                const isPromo = newMenu.category === 'promo';
+                let validRecipe = [];
+                let finalComposition = [];
+
+                if (isPromo) {
+                    finalComposition = composition.filter(c => c.menuId && c.qty).map(c => ({ menuId: c.menuId, qty: parseFloat(c.qty) }));
+                    if (finalComposition.length === 0) {
+                        showNotify('กรุณาเลือกเมนูที่ต้องการรวมในเซ็ตอย่างน้อย 1 รายการ', 'error');
+                        return;
+                    }
+                    
+                    // แปลงความสัมพันธ์ เมนู -> วัตถุดิบ (Flatten recipe)
+                    const recipeMap = {};
+                    finalComposition.forEach(comp => {
+                        const targetMenu = menus.find(m => m.id === comp.menuId);
+                        if (targetMenu && targetMenu.recipe) {
+                            targetMenu.recipe.forEach(r => {
+                                if (!recipeMap[r.materialId]) recipeMap[r.materialId] = 0;
+                                recipeMap[r.materialId] += r.amount * comp.qty;
+                            });
+                        }
+                    });
+                    
+                    validRecipe = Object.entries(recipeMap).map(([materialId, amount]) => ({
+                        materialId,
+                        amount
+                    }));
+                } else {
+                    validRecipe = recipe.filter(r => r.materialId && r.amount).map(r => ({ ...r, amount: parseFloat(r.amount) }));
+                }
                 
                 if (!newMenu.name || !newMenu.price || validRecipe.length === 0) {
-                    showNotify('กรุณากรอกข้อมูลและเลือกวัตถุดิบให้ครบถ้วน', 'error');
+                    showNotify('กรุณากรอกข้อมูลและเลือกรายการให้ครบถ้วน', 'error');
                     return;
                 }
 
@@ -1599,7 +1812,9 @@
                         name: newMenu.name,
                         price: parseFloat(newMenu.price),
                         image: newMenu.image,
-                        recipe: validRecipe
+                        category: newMenu.category,
+                        recipe: validRecipe,
+                        composition: isPromo ? finalComposition : []
                     } : m));
                     showNotify('แก้ไขเมนูสำเร็จ!');
                 } else {
@@ -1608,13 +1823,44 @@
                         name: newMenu.name,
                         price: parseFloat(newMenu.price),
                         image: newMenu.image,
-                        recipe: validRecipe
+                        category: newMenu.category,
+                        recipe: validRecipe,
+                        composition: isPromo ? finalComposition : []
                     };
                     setMenus([...menus, menuItem]);
                     showNotify('สร้างเมนูสำเร็จ!');
                 }
                 resetForm();
             };
+
+            // คัดแยกและสรุปสูตรวัตถุดิบ (BOM) ในเวลาเรียลไทม์เพื่อสแกนดูต้นทุนจริงขณะกำลังแก้ไข
+            const currentRecipeForCost = useMemo(() => {
+                if (newMenu.category === 'promo') {
+                    const recipeMap = {};
+                    composition.forEach(comp => {
+                        if (comp.menuId && comp.qty) {
+                            const targetMenu = menus.find(m => m.id === comp.menuId);
+                            if (targetMenu && targetMenu.recipe) {
+                                targetMenu.recipe.forEach(r => {
+                                    if (!recipeMap[r.materialId]) recipeMap[r.materialId] = 0;
+                                    recipeMap[r.materialId] += r.amount * parseFloat(comp.qty);
+                                });
+                            }
+                        }
+                    });
+                    return Object.entries(recipeMap).map(([materialId, amount]) => ({
+                        materialId,
+                        amount
+                    }));
+                } else {
+                    return recipe.filter(r => r.materialId && r.amount).map(r => ({ materialId: r.materialId, amount: parseFloat(r.amount) }));
+                }
+            }, [newMenu.category, recipe, composition, menus]);
+
+            // จำกัดเมนูที่สามารถนำมาเข้าโปรโมชั่นเซ็ตได้ (ป้องกันการเลือกโปรโมชั่นซ้อนโปรโมชั่นซึ่งอาจทำให้ระบบค้าง)
+            const availableMenusForPromo = useMemo(() => {
+                return menus.filter(m => m.category !== 'promo' && m.id !== editingMenuId);
+            }, [menus, editingMenuId]);
 
             return (
                 <div>
@@ -1638,7 +1884,12 @@
                                             <div className="flex justify-between items-center">
                                                 <div className="flex items-center">
                                                     <span className="text-2xl mr-3">{menu.image}</span>
-                                                    <h3 className="font-bold text-gray-800 text-lg">{menu.name}</h3>
+                                                    <div>
+                                                        <h3 className="font-bold text-gray-800 text-lg flex items-center">
+                                                            {menu.name}
+                                                            {(menu.category === 'promo') && <span className="ml-2 bg-orange-100 text-orange-600 text-[9px] px-2 py-0.5 rounded-full font-bold">โปรโมชั่น / เซ็ต</span>}
+                                                        </h3>
+                                                    </div>
                                                 </div>
                                                 <div className="flex items-center space-x-3">
                                                     <span className="font-bold text-red-600 text-lg mr-2">฿{menu.price}</span>
@@ -1663,9 +1914,18 @@
                             </div>
                             <form onSubmit={handleSaveMenu} className="space-y-4">
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div className="col-span-2">
-                                        <label className="text-xs text-gray-500">ชื่อเมนู</label>
-                                        <input required type="text" value={newMenu.name} onChange={e => setNewMenu({...newMenu, name: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 focus:border-red-500 focus:outline-none" placeholder="เช่น เคบับไก่" />
+                                    <div className="col-span-2 flex space-x-3">
+                                        <div className="w-1/3">
+                                            <label className="text-xs text-gray-500">หมวดหมู่</label>
+                                            <select value={newMenu.category} onChange={e => setNewMenu({...newMenu, category: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 focus:border-red-500 focus:outline-none">
+                                                <option value="main">เมนูหลัก</option>
+                                                <option value="promo">โปรโมชั่น / เซ็ต</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex-1">
+                                            <label className="text-xs text-gray-500">ชื่อเมนู</label>
+                                            <input required type="text" value={newMenu.name} onChange={e => setNewMenu({...newMenu, name: e.target.value})} className="w-full border rounded-lg p-2 mt-1 bg-gray-50 focus:border-red-500 focus:outline-none" placeholder="เช่น เคบับไก่, เซ็ตสุดคุ้ม" />
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="text-xs text-gray-500">ราคาขาย (บาท)</label>
@@ -1678,28 +1938,56 @@
                                 </div>
 
                                 <div className="border-t pt-4">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <label className="text-sm font-bold text-gray-700">ระบุส่วนประกอบสูตรอาหาร</label>
-                                        <button type="button" onClick={handleAddRecipeItem} className="text-xs bg-gray-900 text-white px-2 py-1 rounded font-bold"><i className="fas fa-plus"></i> เพิ่มวัตถุดิบ</button>
-                                    </div>
-                                    <div className="space-y-2 mb-3">
-                                        {recipe.map((item, index) => (
-                                            <div key={index} className="flex space-x-2 items-center">
-                                                <select required value={item.materialId} onChange={e => handleUpdateRecipe(index, 'materialId', e.target.value)} className="flex-1 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none">
-                                                    <option value="">เลือกวัตถุดิบ</option>
-                                                    {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
-                                                </select>
-                                                <input required type="number" step="0.01" placeholder="จำนวน" value={item.amount} onChange={e => handleUpdateRecipe(index, 'amount', e.target.value)} className="w-20 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none text-center" />
-                                                <button type="button" onClick={() => handleRemoveRecipeItem(index)} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>
+                                    {newMenu.category === 'promo' ? (
+                                        // --- โหมดโปรโมชั่น: ดึงรายการเมนูมาจัดเซ็ต ---
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className="text-sm font-bold text-gray-700">ดึงเมนูที่มีอยู่มาจัดเป็นเซ็ต</label>
+                                                <button type="button" onClick={handleAddCompItem} className="text-xs bg-orange-500 text-white px-2 py-1 rounded font-bold"><i className="fas fa-plus mr-1"></i>เพิ่มรายการเมนู</button>
                                             </div>
-                                        ))}
-                                    </div>
+                                            <div className="space-y-2 mb-3">
+                                                {composition.map((item, index) => (
+                                                    <div key={index} className="flex space-x-2 items-center">
+                                                        <select required value={item.menuId} onChange={e => handleUpdateComp(index, 'menuId', e.target.value)} className="flex-1 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none">
+                                                            <option value="">เลือกเมนู</option>
+                                                            {availableMenusForPromo.map(m => <option key={m.id} value={m.id}>{m.name} (฿{m.price})</option>)}
+                                                        </select>
+                                                        <div className="flex items-center space-x-1">
+                                                            <input required type="number" step="1" min="1" placeholder="จำนวน" value={item.qty} onChange={e => handleUpdateComp(index, 'qty', e.target.value)} className="w-16 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none text-center" />
+                                                            <span className="text-xs text-gray-500">ชิ้น</span>
+                                                        </div>
+                                                        <button type="button" onClick={() => handleRemoveCompItem(index)} className="text-red-400 p-2 hover:text-red-600"><i className="fas fa-trash-can"></i></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        // --- โหมดเมนูหลัก: กำหนดส่วนผสมวัตถุดิบตามปกติ ---
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className="text-sm font-bold text-gray-700">ระบุส่วนประกอบสูตรอาหาร (วัตถุดิบ)</label>
+                                                <button type="button" onClick={handleAddRecipeItem} className="text-xs bg-gray-900 text-white px-2 py-1 rounded font-bold"><i className="fas fa-plus"></i> เพิ่มวัตถุดิบ</button>
+                                            </div>
+                                            <div className="space-y-2 mb-3">
+                                                {recipe.map((item, index) => (
+                                                    <div key={index} className="flex space-x-2 items-center">
+                                                        <select required value={item.materialId} onChange={e => handleUpdateRecipe(index, 'materialId', e.target.value)} className="flex-1 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none">
+                                                            <option value="">เลือกวัตถุดิบ</option>
+                                                            {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                                                        </select>
+                                                        <input required type="number" step="0.01" placeholder="จำนวน" value={item.amount} onChange={e => handleUpdateRecipe(index, 'amount', e.target.value)} className="w-20 border rounded-lg p-2 text-sm bg-gray-50 focus:border-red-500 focus:outline-none text-center" />
+                                                        <button type="button" onClick={() => handleRemoveRecipeItem(index)} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600 border border-gray-200 mt-2">
-                                    <span className="font-bold block mb-2 text-gray-700"><i className="fas fa-calculator mr-1"></i> แตกต้นทุนย่อยตามสูตรปัจจุบัน:</span>
+                                    <span className="font-bold block mb-2 text-gray-700"><i className="fas fa-calculator mr-1"></i> สรุปต้นทุนสะสมจริงตามสูตร:</span>
                                     <div className="space-y-1.5">
-                                        {recipe.map((r, idx) => {
+                                        {currentRecipeForCost.map((r, idx) => {
                                             const mat = materials.find(m => m.id === r.materialId);
                                             if (!mat || !r.amount) return null;
                                             const itemCost = mat.cost * parseFloat(r.amount);
@@ -1711,8 +1999,8 @@
                                             );
                                         })}
                                         <div className="pt-2 border-t border-gray-200 flex justify-between font-bold text-sm text-gray-800">
-                                            <span>รวมต้นทุนอาหารทั้งหมด:</span>
-                                            <span className="text-red-600">฿{recipe.reduce((sum, r) => {
+                                            <span>รวมต้นทุนอาหารสะสมทั้งหมด:</span>
+                                            <span className="text-red-600">฿{currentRecipeForCost.reduce((sum, r) => {
                                                 const mat = materials.find(m => m.id === r.materialId);
                                                 return sum + ((mat && r.amount) ? mat.cost * parseFloat(r.amount) : 0);
                                             }, 0).toFixed(2)}</span>
@@ -1747,128 +2035,6 @@
             );
         }
 
-        // 5. History View
-        function HistoryView({ sales, setSales, materials, setMaterials, showNotify }) {
-            const [voidConfirm, setVoidConfirm] = useState({ isOpen: false, sale: null });
-
-            const sortedSales = useMemo(() => {
-                return [...sales].sort((a, b) => parseSheetDate(b.date) - parseSheetDate(a.date));
-            }, [sales]);
-
-            const handleVoidClick = (sale) => {
-                setVoidConfirm({ isOpen: true, sale: sale });
-            };
-
-            const executeVoid = () => {
-                const saleToVoid = voidConfirm.sale;
-                if (!saleToVoid) return;
-
-                let materialsToReturn = {};
-                saleToVoid.items.forEach(item => {
-                    item.recipe.forEach(r => {
-                        if (!materialsToReturn[r.materialId]) materialsToReturn[r.materialId] = 0;
-                        materialsToReturn[r.materialId] += (r.amount * item.qty);
-                    });
-                });
-
-                const newMaterials = materials.map(m => {
-                    if (materialsToReturn[m.id]) {
-                        return { ...m, stock: m.stock + materialsToReturn[m.id] };
-                    }
-                    return m;
-                });
-
-                setMaterials(newMaterials);
-                setSales(sales.filter(s => s.id !== saleToVoid.id));
-                setVoidConfirm({ isOpen: false, sale: null });
-                showNotify('ยกเลิกบิลสำเร็จ: ยอดเงินและวัตถุดิบถูกคืนเข้าระบบแล้ว');
-            };
-
-            const formatTime = (dateString) => {
-                const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
-                return parseSheetDate(dateString).toLocaleTimeString('th-TH', options);
-            };
-            
-            const formatDate = (dateString) => {
-                const options = { day: '2-digit', month: 'short', year: 'numeric' };
-                return parseSheetDate(dateString).toLocaleDateString('th-TH', options);
-            };
-
-            return (
-                <div>
-                    <h2 className="text-lg font-bold text-gray-700 mb-4 flex items-center">
-                        <i className="fas fa-receipt mr-2 text-red-600"></i> ประวัติการขายทั้งหมด
-                    </h2>
-                    
-                    {sortedSales.length === 0 ? (
-                        <div className="bg-white p-8 rounded-xl shadow-sm text-center border border-gray-100">
-                            <i className="fas fa-folder-open text-4xl text-gray-300 mb-3 block"></i>
-                            <p className="text-gray-500">ยังไม่มีประวัติการขาย</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {sortedSales.map((sale) => (
-                                <div key={sale.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
-                                    <button 
-                                        onClick={() => handleVoidClick(sale)}
-                                        className="absolute top-4 right-4 text-xs bg-red-50 text-red-500 border border-red-100 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors"
-                                    >
-                                        <i className="fas fa-ban mr-1"></i>ยกเลิกบิล
-                                    </button>
-
-                                    <div className="flex justify-between items-start border-b border-gray-100 pb-2 mb-2 pr-24">
-                                        <div>
-                                            <span className="font-bold text-gray-800 text-sm flex items-center space-x-2">
-                                                <span>{formatDate(sale.date)}</span>
-                                                {sale.location && (
-                                                    <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                                                        {sale.location}
-                                                    </span>
-                                                )}
-                                            </span>
-                                            <span className="text-xs text-gray-500 mt-1 block"><i className="far fa-clock mr-1"></i>{formatTime(sale.date)}</span>
-                                            <span className="text-xs text-gray-400 block mt-1">ID: {String(sale.id).slice(-6)}</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="text-sm">
-                                        <ul className="space-y-1">
-                                            {sale.items.map((item, idx) => (
-                                                <li key={idx} className="flex justify-between text-gray-600 border-b border-dashed border-gray-100 pb-1 last:border-0">
-                                                    <span>{item.qty}x {item.name}</span>
-                                                    <span>฿{(item.price * item.qty).toFixed(2)}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-
-                                    <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
-                                        <span className="font-bold text-gray-600 text-sm">ยอดรวมทั้งสิ้น</span>
-                                        <span className="font-bold text-green-600 text-lg">฿{sale.totalRevenue.toFixed(2)}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {voidConfirm.isOpen && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm text-center">
-                                <div className="text-red-500 text-5xl mb-4"><i className="fas fa-triangle-exclamation"></i></div>
-                                <h3 className="text-lg font-bold mb-2 text-gray-800">ยืนยันการยกเลิกบิล</h3>
-                                <p className="text-sm text-gray-600 mb-6">คุณต้องการยกเลิกบิลนี้ใช่หรือไม่?<br/>ระบบจะลบยอดขายและคืนวัตถุดิบเข้าสต็อค</p>
-                                <div className="flex space-x-3">
-                                    <button onClick={() => setVoidConfirm({ isOpen: false, sale: null })} className="flex-1 py-3 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors">ปิด</button>
-                                    <button onClick={executeVoid} className="flex-1 py-3 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 shadow-md transition-colors">ยืนยันยกเลิก</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        // 6. Expense View
         function ExpenseView({ expenses, setExpenses, showNotify }) {
             const [showAddModal, setShowAddModal] = useState(false);
             const [newExp, setNewExp] = useState({ topic: '', amount: '', category: 'จิปาถะ' });
